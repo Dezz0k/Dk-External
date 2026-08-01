@@ -1596,14 +1596,46 @@ int main()
 
 					if (screenPos.x >= 0.0f && screenPos.y >= 0.0f && screenPos.x <= monitorWidth && screenPos.y <= monitorHeight)
 					{
-						float targetDx{ (screenPos.x - mousePos.x) * Settings::aimbotStrenght };
-						float targetDy{ (screenPos.y - mousePos.y) * Settings::aimbotStrenght };
-						const float smoothFactor{ 0.45f };
-						smoothAimDx += (targetDx - smoothAimDx) * smoothFactor;
-						smoothAimDy += (targetDy - smoothAimDy) * smoothFactor;
-						MoveMouse(smoothAimDx, smoothAimDy);
+						const float errX{ screenPos.x - static_cast<float>(mousePos.x) };
+						const float errY{ screenPos.y - static_cast<float>(mousePos.y) };
+						const float dist{ sqrtf(errX * errX + errY * errY) };
+						constexpr float deadzone{ 2.0f };
+
+						if (dist <= deadzone)
+						{
+							smoothAimDx = 0.0f;
+							smoothAimDy = 0.0f;
+						}
+						else
+						{
+							// Ease off near the target so we don't overshoot and bounce.
+							const float ease{ dist / (dist + 28.0f) };
+							const float desiredX{ errX * Settings::aimbotStrenght * ease };
+							const float desiredY{ errY * Settings::aimbotStrenght * ease };
+							constexpr float follow{ 0.5f };
+
+							smoothAimDx += (desiredX - smoothAimDx) * follow;
+							smoothAimDy += (desiredY - smoothAimDy) * follow;
+
+							// Drop leftover momentum that would push past the target.
+							if (smoothAimDx * errX < 0.0f) smoothAimDx = 0.0f;
+							if (smoothAimDy * errY < 0.0f) smoothAimDy = 0.0f;
+							if (fabsf(smoothAimDx) > fabsf(errX)) smoothAimDx = errX;
+							if (fabsf(smoothAimDy) > fabsf(errY)) smoothAimDy = errY;
+
+							constexpr float maxStep{ 32.0f };
+							smoothAimDx = std::clamp(smoothAimDx, -maxStep, maxStep);
+							smoothAimDy = std::clamp(smoothAimDy, -maxStep, maxStep);
+
+							MoveMouse(smoothAimDx, smoothAimDy);
+						}
 					}
 				}
+			}
+			else
+			{
+				smoothAimDx = 0.0f;
+				smoothAimDy = 0.0f;
 			}
 
 			keybindPrevDown = keybindDown;

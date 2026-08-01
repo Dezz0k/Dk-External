@@ -593,11 +593,26 @@ bool DrawButtonWithImage(ImTextureRef img, ImVec2 imgSize, ImVec2 bgSize, ImVec2
 
 void MoveMouse(float x, float y)
 {
+	static float accumX{ 0.0f };
+	static float accumY{ 0.0f };
+
+	accumX += x;
+	accumY += y;
+
+	const LONG moveX{ static_cast<LONG>(accumX) };
+	const LONG moveY{ static_cast<LONG>(accumY) };
+
+	if (moveX == 0 && moveY == 0)
+		return;
+
+	accumX -= static_cast<float>(moveX);
+	accumY -= static_cast<float>(moveY);
+
 	INPUT input{ 0 };
 	input.type = INPUT_MOUSE;
 	input.mi.dwFlags = MOUSEEVENTF_MOVE;
-	input.mi.dx = static_cast<LONG>(x);
-	input.mi.dy = static_cast<LONG>(y);
+	input.mi.dx = moveX;
+	input.mi.dy = moveY;
 	SendInput(1, &input, sizeof(INPUT));
 }
 
