@@ -1,0 +1,42 @@
+## Build
+x64/
+Win32/
+[Dd]ebug/
+[Rr]elease/
+**/x64/
+**/Win32/
+*.obj
+*.o
+*.pdb
+*.ilk
+*.iobj
+*.ipdb
+*.exp
+*.lib
+*.tlog
+*.log
+*.idb
+*.aps
+*.res
+*.lastbuildstate
+*.unsuccessfulbuild
+.vs/
+*.userproj
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## Runtime / local
+settings.json
+themes/
+configs/
+*.new
+dk_update.bat
+
+## Misc
+*.tmp
+*.temp
+Thumbs.db
+Desktop.ini
+.DS_Store
