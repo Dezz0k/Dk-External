@@ -95,6 +95,7 @@ namespace Settings
 	bool streamproofEnabled{ false };
 	bool rbxWindowNeedsToBeSelected{ true };
 	int mainLoopDelay{ 0 };
+	bool highEndVisuals{ true };
 
 	bool noclipEnabled{ false };
 	bool flyEnabled{ false };
@@ -219,7 +220,30 @@ int main()
 		std::cout << "Loaded offsets.\n";
 	}
 
-	std::cout << "Press ENTER to attach.";
+	std::cout << "\nPerformance mode:\n";
+	std::cout << "  [1] High end  (full visuals)\n";
+	std::cout << "  [2] Low end   (optimized for weaker PCs)\n";
+	std::cout << "Select (1/2): ";
+
+	{
+		std::string perfChoice;
+		std::getline(std::cin, perfChoice);
+
+		if (!perfChoice.empty() && perfChoice[0] == '2')
+		{
+			Settings::highEndVisuals = false;
+			if (Settings::mainLoopDelay < 8)
+				Settings::mainLoopDelay = 8;
+			std::cout << "Low end mode enabled.\n";
+		}
+		else
+		{
+			Settings::highEndVisuals = true;
+			std::cout << "High end mode enabled.\n";
+		}
+	}
+
+	std::cout << "\nPress ENTER to attach.";
 	std::cin.get();
 
 	system("cls");
@@ -304,7 +328,8 @@ int main()
 	Renderer renderer;
 	renderer.Init();
 
-	Snowflake::CreateSnowFlakes(snow, SNOW_LIMIT, 5.0f, 15.0f, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), Snowflake::vec3(0.0f, 0.005f), IM_COL32(255, 255, 255, 100));
+	if (Settings::highEndVisuals)
+		Snowflake::CreateSnowFlakes(snow, SNOW_LIMIT, 5.0f, 15.0f, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), Snowflake::vec3(0.0f, 0.005f), IM_COL32(255, 255, 255, 100));
 
 	ID3D11ShaderResourceView* avatarImg{ nullptr };
 	int avatarImgW, avatarImgH;
@@ -547,7 +572,8 @@ int main()
 
 		camera = RBX::Memory::read<void*>((void*)((uintptr_t)workspace.address + Offsets::Camera));
 
-		if (GetTickCount64() - lastPlrRefresh > 100)
+		const ULONGLONG plrRefreshMs{ Settings::highEndVisuals ? 100ULL : 250ULL };
+		if (GetTickCount64() - lastPlrRefresh > plrRefreshMs)
 		{
 			playersList.clear();
 			for (RBX::Instance plr : players.getChildren())
@@ -575,7 +601,8 @@ int main()
 			ImVec2 mousePos{ imguiIo.MousePos };
 
 			ImDrawList* drawList{ ImGui::GetBackgroundDrawList() };
-			drawList->AddRectFilled({ 0.f, 0.f }, { static_cast<float>(monitorWidth), static_cast<float>(monitorHeight) }, IM_COL32(0, 0, 0, 100));
+			if (Settings::highEndVisuals)
+				drawList->AddRectFilled({ 0.f, 0.f }, { static_cast<float>(monitorWidth), static_cast<float>(monitorHeight) }, IM_COL32(0, 0, 0, 100));
 
 			POINT mouse;
 			GetCursorPos(&mouse);
@@ -583,12 +610,14 @@ int main()
 			RECT rc;
 			GetWindowRect(renderer.hwnd, &rc);
 
-			Snowflake::Update(snow, Snowflake::vec3(mouse.x, mouse.y), Snowflake::vec3(rc.left, rc.top));
+			if (Settings::highEndVisuals)
+				Snowflake::Update(snow, Snowflake::vec3(mouse.x, mouse.y), Snowflake::vec3(rc.left, rc.top));
 
 			const float barLeft{ (monitorWidth / 2) - 95.0f };
 			const float barRight{ (monitorWidth / 2) + 95.0f };
 			drawList->AddRectFilled({ barLeft, monitorHeight - 80.0f }, { barRight, monitorHeight - 40.0f }, ImColor(0.05f, 0.05f, 0.05f, 1.0f), 6.0f);
-			DrawGlow(drawList, { barLeft, monitorHeight - 80.0f }, { barRight, monitorHeight - 40.0f }, glowColor, 3, 0.2f, 6.0f);
+			if (Settings::highEndVisuals)
+				DrawGlow(drawList, { barLeft, monitorHeight - 80.0f }, { barRight, monitorHeight - 40.0f }, glowColor, 3, 0.2f, 6.0f);
 
 			const float midX{ static_cast<float>(monitorWidth / 2) };
 			auto drawBarBtn = [&](float x, ID3D11ShaderResourceView* icon, bool& hoveredOut, float iconHalf = 12.0f)
@@ -637,7 +666,8 @@ int main()
 
 				ImVec2 winPos{ ImGui::GetWindowPos() };
 				ImVec2 winSize{ ImGui::GetWindowSize() };
-				DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, ImGui::GetStyle().WindowRounding);
+				if (Settings::highEndVisuals)
+					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, ImGui::GetStyle().WindowRounding);
 
 				// tab bar
 				drawList->AddRectFilled({ p.x - 12.0f, p.y - 12.0f }, { p.x + 160.0f, p.y + 600.0f }, IM_COL32(17, 17, 17, 204), 6.0f);
@@ -1135,45 +1165,57 @@ int main()
 
 				if (Settings::currentTab == "Misc")
 				{
-					drawList->AddRectFilled({ p.x + 170.0f, p.y }, { p.x + 454.0f, p.y + 220.0f }, featureBGColor, 6.0f);
-					drawList->AddRect({ p.x + 170.0f, p.y }, { p.x + 454.0f, p.y + 220.0f }, IM_COL32(20, 20, 20, 255), 6.0f);
-					drawList->AddRectFilled({ p.x + 460.0f, p.y }, { p.x + 744.0f, p.y + 280.0f }, featureBGColor, 6.0f);
-					drawList->AddRect({ p.x + 460.0f, p.y }, { p.x + 744.0f, p.y + 280.0f }, IM_COL32(20, 20, 20, 255), 6.0f);
-					drawList->AddRectFilled({ p.x + 750.0f, p.y }, { p.x + 1034.0f, p.y + 220.0f }, featureBGColor, 6.0f);
-					drawList->AddRect({ p.x + 750.0f, p.y }, { p.x + 1034.0f, p.y + 220.0f }, IM_COL32(20, 20, 20, 255), 6.0f);
+					constexpr float col1X{ 170.0f };
+					constexpr float col2X{ 450.0f };
+					constexpr float col3X{ 730.0f };
+					constexpr float colW{ 270.0f };
+					constexpr float topH{ 305.0f };
+					constexpr float humY{ 320.0f };
+					constexpr float humH{ 210.0f };
+					constexpr float pad{ 12.0f };
+					constexpr float itemW{ 240.0f };
+					constexpr float btnW{ 240.0f };
 
-					ImGui::SetCursorPos({ 185.0f, 15.0f });
+					drawList->AddRectFilled({ p.x + col1X, p.y }, { p.x + col1X + colW, p.y + topH }, featureBGColor, 6.0f);
+					drawList->AddRect({ p.x + col1X, p.y }, { p.x + col1X + colW, p.y + topH }, IM_COL32(20, 20, 20, 255), 6.0f);
+					drawList->AddRectFilled({ p.x + col2X, p.y }, { p.x + col2X + colW, p.y + topH }, featureBGColor, 6.0f);
+					drawList->AddRect({ p.x + col2X, p.y }, { p.x + col2X + colW, p.y + topH }, IM_COL32(20, 20, 20, 255), 6.0f);
+					drawList->AddRectFilled({ p.x + col3X, p.y }, { p.x + col3X + colW, p.y + topH }, featureBGColor, 6.0f);
+					drawList->AddRect({ p.x + col3X, p.y }, { p.x + col3X + colW, p.y + topH }, IM_COL32(20, 20, 20, 255), 6.0f);
+					drawList->AddRectFilled({ p.x + col1X, p.y + humY }, { p.x + col3X + colW, p.y + humY + humH }, featureBGColor, 6.0f);
+					drawList->AddRect({ p.x + col1X, p.y + humY }, { p.x + col3X + colW, p.y + humY + humH }, IM_COL32(20, 20, 20, 255), 6.0f);
+
+					ImGui::PushItemWidth(itemW);
+
+					ImGui::SetCursorPos({ col1X + pad, 15.0f });
+					ImGui::BeginGroup();
 					ImGui::Text("[Player]");
-					ImGui::SetCursorPosX(185.0f);
 					ImGui::Text("Player name");
-					ImGui::SetCursorPosX(185.0f);
 					ImGui::InputText("##Player name", Settings::othersRobloxPlr, 30);
-					ImGui::SetCursorPosX(185.0f);
-					if (ImGui::Button("Spectate player"))
+					if (ImGui::Button("Spectate player", { btnW, 0.0f }))
 					{
 						RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), workspace.findFirstChild(std::string(Settings::othersRobloxPlr)).address);
 					}
-					ImGui::SetCursorPosX(185.0f);
-					if (ImGui::Button("Stop spectating"))
+					if (ImGui::Button("Stop spectating", { btnW, 0.0f }))
 					{
 						RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), humanoid.address);
 					}
+					ImGui::EndGroup();
 
-					ImGui::SetCursorPos({ 475.0f, 15.0f });
+					ImGui::SetCursorPos({ col2X + pad, 15.0f });
+					ImGui::BeginGroup();
 					ImGui::Text("[Teleport / Orbit]");
-					ImGui::SetCursorPosX(475.0f);
-					ImGui::InputFloat("X", &Settings::othersTeleportPos.x, 0.0f, 0.0f, "%.0f");
-					ImGui::SetCursorPosX(475.0f);
-					ImGui::InputFloat("Y", &Settings::othersTeleportPos.y, 0.0f, 0.0f, "%.0f");
-					ImGui::SetCursorPosX(475.0f);
-					ImGui::InputFloat("Z", &Settings::othersTeleportPos.z, 0.0f, 0.0f, "%.0f");
-					ImGui::SetCursorPosX(475.0f);
-					if (ImGui::Button("Teleport to coordinates"))
+					ImGui::Text("X");
+					ImGui::InputFloat("##TPX", &Settings::othersTeleportPos.x, 0.0f, 0.0f, "%.0f");
+					ImGui::Text("Y");
+					ImGui::InputFloat("##TPY", &Settings::othersTeleportPos.y, 0.0f, 0.0f, "%.0f");
+					ImGui::Text("Z");
+					ImGui::InputFloat("##TPZ", &Settings::othersTeleportPos.z, 0.0f, 0.0f, "%.0f");
+					if (ImGui::Button("Teleport to coordinates", { btnW, 0.0f }))
 					{
 						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::Position), Settings::othersTeleportPos);
 					}
-					ImGui::SetCursorPosX(475.0f);
-					if (ImGui::Button("Teleport to player"))
+					if (ImGui::Button("Teleport to player", { btnW, 0.0f }))
 					{
 						RBX::Instance plr{ players.findFirstChild(Settings::othersRobloxPlr) };
 						RBX::Instance plrMi{ plr.getModelInstance() };
@@ -1181,26 +1223,22 @@ int main()
 
 						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::Position), plrHrp.getPosition());
 					}
-					ImGui::SetCursorPosX(475.0f);
-					if (ImGui::Button("Orbit player"))
+					if (ImGui::Button("Orbit player", { btnW, 0.0f }))
 					{
 						Settings::orbitEnabled = true;
 					}
-					ImGui::SetCursorPosX(475.0f);
-					if (ImGui::Button("Stop orbiting"))
+					if (ImGui::Button("Stop orbiting", { btnW, 0.0f }))
 					{
 						Settings::orbitEnabled = false;
 					}
+					ImGui::EndGroup();
 
-					ImGui::SetCursorPos({ 765.0f, 15.0f });
+					ImGui::SetCursorPos({ col3X + pad, 15.0f });
+					ImGui::BeginGroup();
 					ImGui::Text("[Movement / Stream]");
-					ImGui::SetCursorPosX(765.0f);
 					ImGui::Checkbox("Toggle fly", &Settings::flyEnabled);
-					ImGui::SetCursorPosX(765.0f);
 					ImGui::Hotkey(&Settings::flyKey, { 100, 20 });
-					ImGui::SetCursorPosX(765.0f);
 					ImGui::Checkbox("Toggle noclip", &Settings::noclipEnabled);
-					ImGui::SetCursorPosX(765.0f);
 					if (ImGui::Checkbox("Hide Stream", &Settings::streamproofEnabled))
 					{
 						if (Settings::streamproofEnabled)
@@ -1208,29 +1246,31 @@ int main()
 						else
 							SetWindowDisplayAffinity(renderer.hwnd, WDA_NONE);
 					}
-					ImGui::SetCursorPosX(765.0f);
+					ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + itemW);
 					ImGui::TextWrapped("Hides the overlay from OBS and other capture software.");
+					ImGui::PopTextWrapPos();
+					ImGui::EndGroup();
 
-					ImGui::SetCursorPos({ 185.0f, 260.0f });
+					ImGui::SetCursorPos({ col1X + pad, humY + 15.0f });
+					ImGui::BeginGroup();
 					ImGui::Text("[Humanoid]");
-					ImGui::SetCursorPosX(185.0f);
 					ImGui::Text("WalkSpeed");
-					ImGui::SetCursorPosX(185.0f);
+					ImGui::SetNextItemWidth(col3X + colW - col1X - pad * 2.0f);
 					ImGui::SliderInt("##WalkSpeed", &Settings::walkSpeedSet, 0, 1000);
-					ImGui::SetCursorPosX(185.0f);
-					if (ImGui::Button("Set Walk Speed"))
+					if (ImGui::Button("Set Walk Speed", { 180.0f, 0.0f }))
 					{
 						RBX::setWalkSpeed(humanoid, Settings::walkSpeedSet);
 					}
-					ImGui::SetCursorPosX(185.0f);
 					ImGui::Text("JumpPower");
-					ImGui::SetCursorPosX(185.0f);
+					ImGui::SetNextItemWidth(col3X + colW - col1X - pad * 2.0f);
 					ImGui::SliderInt("##JumpPower", &Settings::jumpPowerSet, 0, 1000);
-					ImGui::SetCursorPosX(185.0f);
-					if (ImGui::Button("Set Jump Power"))
+					if (ImGui::Button("Set Jump Power", { 180.0f, 0.0f }))
 					{
 						RBX::setJumpPower(humanoid, Settings::jumpPowerSet);
 					}
+					ImGui::EndGroup();
+
+					ImGui::PopItemWidth();
 				}
 
 				if (Settings::currentTab == "Gambling")
@@ -1282,7 +1322,8 @@ int main()
 
 				ImVec2 winPos{ ImGui::GetWindowPos() };
 				ImVec2 winSize{ ImGui::GetWindowSize() };
-				DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
+				if (Settings::highEndVisuals)
+					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
 
 				if (avatarImg)
 				{
@@ -1354,7 +1395,8 @@ int main()
 
 				ImVec2 winPos{ ImGui::GetWindowPos() };
 				ImVec2 winSize{ ImGui::GetWindowSize() };
-				DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
+				if (Settings::highEndVisuals)
+					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
 
 				for (RBX::Instance chld : dataModel.getChildren())
 				{
@@ -1371,7 +1413,8 @@ int main()
 
 				ImVec2 winPos{ ImGui::GetWindowPos() };
 				ImVec2 winSize{ ImGui::GetWindowSize() };
-				DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
+				if (Settings::highEndVisuals)
+					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
 
 				ImGui::Text("Friends List");
 				ImGui::TextWrapped("Check = friend (green ESP, ignored by aim). X = not a friend.");
@@ -1411,7 +1454,8 @@ int main()
 
 				ImVec2 winPos{ ImGui::GetWindowPos() };
 				ImVec2 winSize{ ImGui::GetWindowSize() };
-				DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
+				if (Settings::highEndVisuals)
+					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
 
 				ImGui::Text("Theme name");
 				ImGui::InputText("##Theme name popup", Settings::themeFileName, 30);
@@ -1469,7 +1513,8 @@ int main()
 
 			ImVec2 winPos{ ImGui::GetWindowPos() };
 			ImVec2 winSize{ ImGui::GetWindowSize() };
-			DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
+			if (Settings::highEndVisuals)
+				DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
 
 			const bool aimActive{ Settings::aimbotEnabled && (Settings::aimbotToggleLock ? Settings::aimbotLockToggled : IsBindDown(Settings::aimbotKey)) };
 			const bool triggerActive{ Settings::triggerbotEnabled && IsBindDown(Settings::triggerbotKey) };
