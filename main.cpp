@@ -101,10 +101,11 @@ namespace Settings
 	bool flyEnabled{ false };
 	int flyKey{ 0 };
 	bool flyKeyToggled{ false };
+	float flySpeed{ 16.0f };
 	bool orbitEnabled{ false };
 	int walkSpeedSet{};
 	int jumpPowerSet{};
-	char othersRobloxPlr[30]{};
+	char othersRobloxPlr[64]{};
 	RBX::Vector3 othersTeleportPos{};
 
 	int gamblingSlotsNumber1{ 0 };
@@ -1055,6 +1056,8 @@ int main()
 							Settings::noclipEnabled = config["misc"]["noclipEnabled"].get<bool>();
 							Settings::flyEnabled = config["misc"]["flyEnabled"].get<bool>();
 							Settings::flyKey = config["misc"]["flyKey"].get<int>();
+							if (config["misc"].contains("flySpeed"))
+								Settings::flySpeed = config["misc"]["flySpeed"].get<float>();
 
 							iF.close();
 							configList = ListConfigFiles();
@@ -1114,6 +1117,7 @@ int main()
 							config["misc"]["noclipEnabled"] = Settings::noclipEnabled;
 							config["misc"]["flyEnabled"] = Settings::flyEnabled;
 							config["misc"]["flyKey"] = Settings::flyKey;
+							config["misc"]["flySpeed"] = Settings::flySpeed;
 
 							const std::filesystem::path path{ std::filesystem::path("configs") / (std::string(Settings::configFileName) + ".json") };
 							std::ofstream oF(path);
@@ -1169,8 +1173,8 @@ int main()
 					constexpr float col2X{ 450.0f };
 					constexpr float col3X{ 730.0f };
 					constexpr float colW{ 270.0f };
-					constexpr float topH{ 305.0f };
-					constexpr float humY{ 320.0f };
+					constexpr float topH{ 335.0f };
+					constexpr float humY{ 350.0f };
 					constexpr float humH{ 210.0f };
 					constexpr float pad{ 12.0f };
 					constexpr float itemW{ 240.0f };
@@ -1190,11 +1194,33 @@ int main()
 					ImGui::SetCursorPos({ col1X + pad, 15.0f });
 					ImGui::BeginGroup();
 					ImGui::Text("[Player]");
-					ImGui::Text("Player name");
-					ImGui::InputText("##Player name", Settings::othersRobloxPlr, 30);
+					ImGui::Text("Player");
+					const char* playerPreview{ Settings::othersRobloxPlr[0] ? Settings::othersRobloxPlr : "Select player" };
+					if (ImGui::BeginCombo("##Player select", playerPreview))
+					{
+						for (RBX::Instance plr : players.getChildren())
+						{
+							const std::string name{ plr.name() };
+							if (name.empty())
+								continue;
+
+							const bool selected{ name == Settings::othersRobloxPlr };
+							if (ImGui::Selectable(name.c_str(), selected))
+							{
+								strncpy_s(Settings::othersRobloxPlr, name.c_str(), _TRUNCATE);
+							}
+							if (selected)
+								ImGui::SetItemDefaultFocus();
+						}
+						ImGui::EndCombo();
+					}
 					if (ImGui::Button("Spectate player", { btnW, 0.0f }))
 					{
-						RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), workspace.findFirstChild(std::string(Settings::othersRobloxPlr)).address);
+						RBX::Instance targetPlr{ players.findFirstChild(Settings::othersRobloxPlr) };
+						RBX::Instance targetMi{ targetPlr.getModelInstance() };
+						RBX::Instance targetHum{ targetMi.findFirstChild("Humanoid") };
+						if (targetHum.address)
+							RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), targetHum.address);
 					}
 					if (ImGui::Button("Stop spectating", { btnW, 0.0f }))
 					{
@@ -1238,6 +1264,8 @@ int main()
 					ImGui::Text("[Movement / Stream]");
 					ImGui::Checkbox("Toggle fly", &Settings::flyEnabled);
 					ImGui::Hotkey(&Settings::flyKey, { 100, 20 });
+					ImGui::Text("Fly speed");
+					ImGui::SliderFloat("##Fly speed", &Settings::flySpeed, 1.0f, 200.0f, "%.1f");
 					ImGui::Checkbox("Toggle noclip", &Settings::noclipEnabled);
 					if (ImGui::Checkbox("Hide Stream", &Settings::streamproofEnabled))
 					{
@@ -1954,10 +1982,8 @@ int main()
 
 			if (Settings::flyKeyToggled)
 			{
-				float flySpeed{ 5.0f };
 				void* primitive{ hrp.getPrimitive() };
 
-				RBX::Vector3 camPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)camera.address + Offsets::CameraPos)) };
 				RBX::Matrix3 camRot{ RBX::Memory::read<RBX::Matrix3>((void*)((uintptr_t)camera.address + Offsets::CameraRotation)) };
 				RBX::Vector3 pos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position)) };
 
@@ -1999,22 +2025,18 @@ int main()
 					moveDirection.y -= 1.0f;
 				}
 
-				if (moveDirection.x != 0 && moveDirection.y != 0 && moveDirection.z != 0)
+				const float len{ std::sqrt(moveDirection.x * moveDirection.x + moveDirection.y * moveDirection.y + moveDirection.z * moveDirection.z) };
+				if (len > 0.0001f)
 				{
-					float len{ std::sqrt(moveDirection.x * moveDirection.x + moveDirection.y * moveDirection.y) };
-					if (len == 0) continue;
-					moveDirection.x /= len;
-					moveDirection.y /= len;
-					moveDirection.z /= len;
+					const float speed{ Settings::flySpeed * 0.05f };
+					moveDirection.x = (moveDirection.x / len) * speed;
+					moveDirection.y = (moveDirection.y / len) * speed;
+					moveDirection.z = (moveDirection.z / len) * speed;
 
-					moveDirection.x *= flySpeed;
-					moveDirection.y *= flySpeed;
-					moveDirection.z *= flySpeed;
+					RBX::Vector3 newPos{ pos.x + moveDirection.x, pos.y + moveDirection.y, pos.z + moveDirection.z };
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
 				}
 
-				RBX::Vector3 newPos{ pos.x + moveDirection.x, pos.y + moveDirection.y, pos.z + moveDirection.z };
-
-				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
 				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
 			}
 		}

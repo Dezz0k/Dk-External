@@ -18,7 +18,7 @@ using json = nlohmann::json;
 // and attach an asset named exactly UPDATE_ASSET_NAME.
 namespace UpdaterConfig
 {
-	constexpr const char* APP_VERSION = "1.1.4";
+	constexpr const char* APP_VERSION = "1.1.5";
 	constexpr const char* GITHUB_OWNER = "Dezz0k";
 	constexpr const char* GITHUB_REPO = "Dk-External";
 	constexpr const char* UPDATE_ASSET_NAME = "DkExternal.exe";
