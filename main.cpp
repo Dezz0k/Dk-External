@@ -60,7 +60,7 @@ namespace Settings
 	bool aimbotToggleLock{ false };
 	bool aimbotLockToggled{ false };
 	float aimbotFOVRadius{ 100.0f };
-	float aimbotStrenght{ 0.25f };
+	float aimbotStrenght{ 0.35f };
 	float aimbotPredictionX{ 5.0f };
 	float aimbotPredictionY{ 5.0f };
 	std::string aimbotLockPart{ "Closest" };
@@ -379,6 +379,7 @@ int main()
 	RBX::Instance camera{ RBX::Memory::read<void*>((void*)((uintptr_t)workspace.address + Offsets::Camera)) };
 
 	RBX::Instance lockedPlr{ nullptr };
+	RBX::Instance stickyLockPart{ nullptr };
 	bool locked{ false };
 	bool keybindPrevDown{ false };
 
@@ -1489,8 +1490,18 @@ int main()
 		if (Settings::aimbotEnabled && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
 		{
 			const bool keybindDown{ IsBindDown(Settings::aimbotKey) };
-			static float smoothAimDx{ 0.0f };
-			static float smoothAimDy{ 0.0f };
+			static float prevErrX{ 0.0f };
+			static float prevErrY{ 0.0f };
+			static ULONGLONG lastAimTickMs{ 0 };
+
+			auto clearAimLock = [&]()
+			{
+				locked = false;
+				lockedPlr = RBX::Instance(nullptr);
+				stickyLockPart = RBX::Instance(nullptr);
+				prevErrX = 0.0f;
+				prevErrY = 0.0f;
+			};
 
 			auto acquireClosestTarget = [&]()
 			{
@@ -1524,8 +1535,9 @@ int main()
 				{
 					lockedPlr = closestPlr;
 					locked = true;
-					smoothAimDx = 0.0f;
-					smoothAimDy = 0.0f;
+					stickyLockPart = resolveLockPart(lockedPlr, Settings::aimbotLockPart, mousePos, visualEngine);
+					prevErrX = 0.0f;
+					prevErrY = 0.0f;
 					return true;
 				}
 				return false;
@@ -1543,10 +1555,7 @@ int main()
 					else
 					{
 						Settings::aimbotLockToggled = false;
-						locked = false;
-						lockedPlr = RBX::Instance(nullptr);
-						smoothAimDx = 0.0f;
-						smoothAimDy = 0.0f;
+						clearAimLock();
 					}
 				}
 			}
@@ -1557,85 +1566,103 @@ int main()
 					acquireClosestTarget();
 
 				if (!keybindDown && keybindPrevDown)
-				{
-					locked = false;
-					lockedPlr = RBX::Instance(nullptr);
-					smoothAimDx = 0.0f;
-					smoothAimDy = 0.0f;
-				}
+					clearAimLock();
 			}
 
 			if (locked && lockedPlr.address != nullptr && IsFriend(lockedPlr.name()))
 			{
-				locked = false;
-				lockedPlr = RBX::Instance(nullptr);
 				Settings::aimbotLockToggled = false;
+				clearAimLock();
 			}
 
 			const bool shouldTrack{ Settings::aimbotToggleLock ? Settings::aimbotLockToggled : keybindDown };
 			if (shouldTrack && locked && lockedPlr.address != nullptr)
 			{
-				POINT mousePos{};
-				GetCursorPos(&mousePos);
-
-				RBX::Instance lockPart{ resolveLockPart(lockedPlr, Settings::aimbotLockPart, mousePos, visualEngine) };
-				if (lockPart.address)
+				// Overlay can run hundreds of FPS; aim only ~90Hz like Roblox RenderStepped.
+				const ULONGLONG nowMs{ GetTickCount64() };
+				if (nowMs - lastAimTickMs >= 11)
 				{
-					RBX::Vector3 lockPartPos{ lockPart.getPosition() };
+					lastAimTickMs = nowMs;
 
-					if (Settings::aimbotPredictionEnabled)
+					POINT mousePos{};
+					GetCursorPos(&mousePos);
+
+					RBX::Instance lockPart{ stickyLockPart };
+					if (!lockPart.address)
+						lockPart = resolveLockPart(lockedPlr, Settings::aimbotLockPart, mousePos, visualEngine);
+					else if (Settings::aimbotLockPart != "Closest")
+						lockPart = resolveLockPart(lockedPlr, Settings::aimbotLockPart, mousePos, visualEngine);
+
+					if (lockPart.address)
 					{
-						RBX::Vector3 lockPartVelocity{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)lockPart.getPrimitive() + Offsets::Velocity)) };
-						const float predScale{ 0.1f };
-						lockPartPos.x += lockPartVelocity.x * Settings::aimbotPredictionX * predScale;
-						lockPartPos.y += lockPartVelocity.y * Settings::aimbotPredictionY * predScale;
-						lockPartPos.z += lockPartVelocity.z * Settings::aimbotPredictionX * predScale;
-					}
+						stickyLockPart = lockPart;
+						RBX::Vector3 lockPartPos{ lockPart.getPosition() };
 
-					RBX::Vector2 screenPos{ visualEngine.worldToScreen(lockPartPos) };
-
-					if (screenPos.x >= 0.0f && screenPos.y >= 0.0f && screenPos.x <= monitorWidth && screenPos.y <= monitorHeight)
-					{
-						const float errX{ screenPos.x - static_cast<float>(mousePos.x) };
-						const float errY{ screenPos.y - static_cast<float>(mousePos.y) };
-						const float dist{ sqrtf(errX * errX + errY * errY) };
-						constexpr float deadzone{ 2.0f };
-
-						if (dist <= deadzone)
+						if (Settings::aimbotPredictionEnabled)
 						{
-							smoothAimDx = 0.0f;
-							smoothAimDy = 0.0f;
+							RBX::Vector3 lockPartVelocity{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)lockPart.getPrimitive() + Offsets::Velocity)) };
+							// Keep prediction mild so far/fast targets don't yank past the crosshair.
+							const float predScale{ 0.035f };
+							lockPartPos.x += lockPartVelocity.x * Settings::aimbotPredictionX * predScale;
+							lockPartPos.y += lockPartVelocity.y * Settings::aimbotPredictionY * predScale;
+							lockPartPos.z += lockPartVelocity.z * Settings::aimbotPredictionX * predScale;
 						}
-						else
+
+						RBX::Vector2 screenPos{ visualEngine.worldToScreen(lockPartPos) };
+
+						if (screenPos.x >= 0.0f && screenPos.y >= 0.0f && screenPos.x <= monitorWidth && screenPos.y <= monitorHeight)
 						{
-							// Ease off near the target so we don't overshoot and bounce.
-							const float ease{ dist / (dist + 28.0f) };
-							const float desiredX{ errX * Settings::aimbotStrenght * ease };
-							const float desiredY{ errY * Settings::aimbotStrenght * ease };
-							constexpr float follow{ 0.5f };
+							const float errX{ screenPos.x - static_cast<float>(mousePos.x) };
+							const float errY{ screenPos.y - static_cast<float>(mousePos.y) };
+							const float dist{ sqrtf(errX * errX + errY * errY) };
+							constexpr float deadzone{ 3.5f };
 
-							smoothAimDx += (desiredX - smoothAimDx) * follow;
-							smoothAimDy += (desiredY - smoothAimDy) * follow;
+							if (dist <= deadzone)
+							{
+								prevErrX = 0.0f;
+								prevErrY = 0.0f;
+							}
+							else
+							{
+								// Strength -> mouse divisor (higher strength = lower divisor = snappier, still capped).
+								const float strength{ std::clamp(Settings::aimbotStrenght, 0.05f, 1.0f) };
+								const float divisor{ 14.0f - strength * 10.0f }; // 13.5 .. 4.0
+								const float maxStep{ 3.0f + strength * 7.0f };   // 3.35 .. 10
 
-							// Drop leftover momentum that would push past the target.
-							if (smoothAimDx * errX < 0.0f) smoothAimDx = 0.0f;
-							if (smoothAimDy * errY < 0.0f) smoothAimDy = 0.0f;
-							if (fabsf(smoothAimDx) > fabsf(errX)) smoothAimDx = errX;
-							if (fabsf(smoothAimDy) > fabsf(errY)) smoothAimDy = errY;
+								// Saturate large far-target errors so we crawl in instead of swinging.
+								float moveX{ tanhf(errX / (90.0f + dist * 0.15f)) * maxStep };
+								float moveY{ tanhf(errY / (90.0f + dist * 0.15f)) * maxStep };
 
-							constexpr float maxStep{ 32.0f };
-							smoothAimDx = std::clamp(smoothAimDx, -maxStep, maxStep);
-							smoothAimDy = std::clamp(smoothAimDy, -maxStep, maxStep);
+								// Also blend a tiny proportional term so near-target tracking stays precise.
+								moveX += errX / divisor * 0.35f;
+								moveY += errY / divisor * 0.35f;
 
-							MoveMouse(smoothAimDx, smoothAimDy);
+								// If we crossed the target, hard-brake (kills the back/forth loop).
+								if (prevErrX != 0.0f && errX * prevErrX < 0.0f)
+									moveX *= 0.12f;
+								if (prevErrY != 0.0f && errY * prevErrY < 0.0f)
+									moveY *= 0.12f;
+
+								moveX = std::clamp(moveX, -maxStep, maxStep);
+								moveY = std::clamp(moveY, -maxStep, maxStep);
+
+								// Never request more mouse delta than remaining screen error.
+								if (fabsf(moveX) > fabsf(errX)) moveX = errX;
+								if (fabsf(moveY) > fabsf(errY)) moveY = errY;
+
+								prevErrX = errX;
+								prevErrY = errY;
+
+								MoveMouse(moveX, moveY);
+							}
 						}
 					}
 				}
 			}
-			else
+			else if (!shouldTrack)
 			{
-				smoothAimDx = 0.0f;
-				smoothAimDy = 0.0f;
+				prevErrX = 0.0f;
+				prevErrY = 0.0f;
 			}
 
 			keybindPrevDown = keybindDown;
