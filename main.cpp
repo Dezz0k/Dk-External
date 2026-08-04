@@ -1578,9 +1578,9 @@ int main()
 			const bool shouldTrack{ Settings::aimbotToggleLock ? Settings::aimbotLockToggled : keybindDown };
 			if (shouldTrack && locked && lockedPlr.address != nullptr)
 			{
-				// Overlay can run hundreds of FPS; aim only ~90Hz like Roblox RenderStepped.
+				// Overlay can run hundreds of FPS; aim only ~120Hz like Roblox RenderStepped.
 				const ULONGLONG nowMs{ GetTickCount64() };
-				if (nowMs - lastAimTickMs >= 11)
+				if (nowMs - lastAimTickMs >= 8)
 				{
 					lastAimTickMs = nowMs;
 
@@ -1601,8 +1601,7 @@ int main()
 						if (Settings::aimbotPredictionEnabled)
 						{
 							RBX::Vector3 lockPartVelocity{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)lockPart.getPrimitive() + Offsets::Velocity)) };
-							// Keep prediction mild so far/fast targets don't yank past the crosshair.
-							const float predScale{ 0.035f };
+							const float predScale{ 0.045f };
 							lockPartPos.x += lockPartVelocity.x * Settings::aimbotPredictionX * predScale;
 							lockPartPos.y += lockPartVelocity.y * Settings::aimbotPredictionY * predScale;
 							lockPartPos.z += lockPartVelocity.z * Settings::aimbotPredictionX * predScale;
@@ -1615,7 +1614,7 @@ int main()
 							const float errX{ screenPos.x - static_cast<float>(mousePos.x) };
 							const float errY{ screenPos.y - static_cast<float>(mousePos.y) };
 							const float dist{ sqrtf(errX * errX + errY * errY) };
-							constexpr float deadzone{ 3.5f };
+							constexpr float deadzone{ 2.5f };
 
 							if (dist <= deadzone)
 							{
@@ -1624,29 +1623,25 @@ int main()
 							}
 							else
 							{
-								// Strength -> mouse divisor (higher strength = lower divisor = snappier, still capped).
 								const float strength{ std::clamp(Settings::aimbotStrenght, 0.05f, 1.0f) };
-								const float divisor{ 14.0f - strength * 10.0f }; // 13.5 .. 4.0
-								const float maxStep{ 3.0f + strength * 7.0f };   // 3.35 .. 10
+								// Higher strength = lower divisor = much faster snap (still rate-limited).
+								const float divisor{ 9.0f - strength * 7.2f }; // ~8.6 .. 1.8
+								const float maxStep{ 10.0f + strength * 38.0f }; // ~12 .. 48
 
-								// Saturate large far-target errors so we crawl in instead of swinging.
-								float moveX{ tanhf(errX / (90.0f + dist * 0.15f)) * maxStep };
-								float moveY{ tanhf(errY / (90.0f + dist * 0.15f)) * maxStep };
+								float moveX{ errX / divisor };
+								float moveY{ errY / divisor };
 
-								// Also blend a tiny proportional term so near-target tracking stays precise.
-								moveX += errX / divisor * 0.35f;
-								moveY += errY / divisor * 0.35f;
+								// Soft-cap only the extreme far swings so we stay fast without flying.
+								const float softCap{ maxStep * (0.55f + 0.45f * tanhf(dist / 180.0f)) };
+								moveX = std::clamp(moveX, -softCap, softCap);
+								moveY = std::clamp(moveY, -softCap, softCap);
 
-								// If we crossed the target, hard-brake (kills the back/forth loop).
+								// If we crossed the target, brake hard (keeps the no-oscillation fix).
 								if (prevErrX != 0.0f && errX * prevErrX < 0.0f)
-									moveX *= 0.12f;
+									moveX *= 0.15f;
 								if (prevErrY != 0.0f && errY * prevErrY < 0.0f)
-									moveY *= 0.12f;
+									moveY *= 0.15f;
 
-								moveX = std::clamp(moveX, -maxStep, maxStep);
-								moveY = std::clamp(moveY, -maxStep, maxStep);
-
-								// Never request more mouse delta than remaining screen error.
 								if (fabsf(moveX) > fabsf(errX)) moveX = errX;
 								if (fabsf(moveY) > fabsf(errY)) moveY = errY;
 
