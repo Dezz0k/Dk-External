@@ -662,7 +662,7 @@ int main()
 
 			if (Settings::mainMenuVisible)
 			{
-				ImGui::SetNextWindowSize({ 1057, 660 });
+				ImGui::SetNextWindowSize({ 1057, 720 });
 
 				ImGui::Begin("DK", (bool*)0, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
 
@@ -676,7 +676,7 @@ int main()
 					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, ImGui::GetStyle().WindowRounding);
 
 				// tab bar
-				drawList->AddRectFilled({ p.x - 12.0f, p.y - 12.0f }, { p.x + 160.0f, p.y + 660.0f }, IM_COL32(17, 17, 17, 204), 6.0f);
+				drawList->AddRectFilled({ p.x - 12.0f, p.y - 12.0f }, { p.x + 160.0f, p.y + 720.0f }, IM_COL32(17, 17, 17, 204), 6.0f);
 
 				if (dkLogoImg)
 					drawList->AddImage((void*)dkLogoImg, { winPos.x + 8.0f, winPos.y + 4.0f }, { winPos.x + 152.0f, winPos.y + 140.0f });
@@ -1193,8 +1193,8 @@ int main()
 					constexpr float col2X{ 450.0f };
 					constexpr float col3X{ 730.0f };
 					constexpr float colW{ 270.0f };
-					constexpr float topH{ 390.0f };
-					constexpr float humY{ 405.0f };
+					constexpr float topH{ 450.0f };
+					constexpr float humY{ 465.0f };
 					constexpr float humH{ 210.0f };
 					constexpr float pad{ 12.0f };
 					constexpr float itemW{ 240.0f };
@@ -1257,6 +1257,14 @@ int main()
 					ImGui::InputFloat("##TPY", &Settings::othersTeleportPos.y, 0.0f, 0.0f, "%.0f");
 					ImGui::Text("Z");
 					ImGui::InputFloat("##TPZ", &Settings::othersTeleportPos.z, 0.0f, 0.0f, "%.0f");
+					if (ImGui::Button("Set coordinates", { btnW, 0.0f }))
+					{
+						Settings::othersTeleportPos = hrp.getPosition();
+					}
+					if (ImGui::Button("Clear coordinates", { btnW, 0.0f }))
+					{
+						Settings::othersTeleportPos = { 0.0f, 0.0f, 0.0f };
+					}
 					if (ImGui::Button("Teleport to coordinates", { btnW, 0.0f }))
 					{
 						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::Position), Settings::othersTeleportPos);
