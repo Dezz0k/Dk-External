@@ -85,7 +85,7 @@ namespace Offsets
 	inline uintptr_t ModuleScriptByteCode{ offsets::ModuleScript::ByteCode };
 	inline uintptr_t ModuleScriptHash{ offsets::ModuleScript::Hash };
 	inline uintptr_t MoonTextureId{ offsets::Sky::MoonTextureId };
-	inline uintptr_t MousePosition{ 0xEC };
+	inline uintptr_t MousePosition{ 0xD4 };
 	inline uintptr_t MouseSensitivity{ offsets::Pointers::Sensitivity };
 	inline uintptr_t MoveDirection{ offsets::Humanoid::MoveDirection };
 	inline uintptr_t Name{ offsets::Instance::Name };

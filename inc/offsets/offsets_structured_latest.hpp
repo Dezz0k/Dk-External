@@ -5,12 +5,13 @@
 
 inline std::string ClientVersion = "version-145f189a6a974303";
 
+// Updated from message (2).txt + Proohio_Offsets.hpp (2026-08-06)
 //Total offsets: 224
 
 namespace offsets {
 
     namespace Animation {
-        inline constexpr uintptr_t AnimationId = 0xC0;
+        inline constexpr uintptr_t AnimationId = 0xB8;
     }
 
     namespace BasePart {
@@ -50,7 +51,7 @@ namespace offsets {
         inline constexpr uintptr_t Subject = 0xC8;
         inline constexpr uintptr_t Type = 0x138;
         inline constexpr uintptr_t ViewportInt16 = 0x28C;
-        inline constexpr uintptr_t ViewportSize = 0x2C8;
+        inline constexpr uintptr_t ViewportSize = 0x29C;
     }
 
     namespace CharacterMesh {
@@ -68,7 +69,7 @@ namespace offsets {
         inline constexpr uintptr_t ClientReplicator = 0x328;
         inline constexpr uintptr_t CreatorId = 0x180;
         inline constexpr uintptr_t GameId = 0x188;
-        inline constexpr uintptr_t GameLoaded = 0x563;
+        inline constexpr uintptr_t GameLoaded = 0x578;
         inline constexpr uintptr_t JobId = 0x120;
         inline constexpr uintptr_t PlaceId = 0x190;
         inline constexpr uintptr_t ScriptContext = 0x440;
@@ -138,24 +139,24 @@ namespace offsets {
         inline constexpr uintptr_t BreakJointsOnDeath = 0x1D7;
         inline constexpr uintptr_t DisplayDistanceType = 0x180;
         inline constexpr uintptr_t EvaluateStateMachine = 0x1D8;
-        inline constexpr uintptr_t Health = 0x188;
-        inline constexpr uintptr_t HealthDisplayDistance = 0x190;
-        inline constexpr uintptr_t HealthDisplayType = 0x1B4;
+        inline constexpr uintptr_t Health = 0x190;
+        inline constexpr uintptr_t HealthDisplayDistance = 0x188;
+        inline constexpr uintptr_t HealthDisplayType = 0x18C;
         inline constexpr uintptr_t HipHeight = 0x194;
         inline constexpr uintptr_t HumanoidState = 0x898;
         inline constexpr uintptr_t HumanoidStateId = 0x20;
-        inline constexpr uintptr_t Jump = 0x1D9;
+        inline constexpr uintptr_t Jump = 0x1DA;
         inline constexpr uintptr_t JumpPower = 0x1A4;
         inline constexpr uintptr_t MaxHealth = 0x1A8;
         inline constexpr uintptr_t MaxSlopeAngle = 0x1AC;
-        inline constexpr uintptr_t MoveDirection = 0x14C;
+        inline constexpr uintptr_t MoveDirection = 0x140;
         inline constexpr uintptr_t NameDisplayDistance = 0x1B0;
         inline constexpr uintptr_t NameOcclusion = 0x1B4;
-        inline constexpr uintptr_t PlatformStand = 0x1DB;
+        inline constexpr uintptr_t PlatformStand = 0x1DC;
         inline constexpr uintptr_t RequiresNeck = 0x1DD;
         inline constexpr uintptr_t RigType = 0x1C0;
         inline constexpr uintptr_t SeatPart = 0x108;
-        inline constexpr uintptr_t Sit = 0x1DD;
+        inline constexpr uintptr_t Sit = 0x1DE;
         inline constexpr uintptr_t WalkSpeed = 0x1D0;
         inline constexpr uintptr_t WalkSpeedCheck = 0x3BC;
     }
@@ -216,13 +217,13 @@ namespace offsets {
     }
 
     namespace MeshPart {
-        inline constexpr uintptr_t MeshId = 0x2A8;
-        inline constexpr uintptr_t TextureId = 0x2D8;
+        inline constexpr uintptr_t MeshId = 0x2A0;
+        inline constexpr uintptr_t TextureId = 0x2D0;
     }
 
     namespace ModelInstance {
         inline constexpr uintptr_t PrimaryPart = 0x258;
-        inline constexpr uintptr_t Scale = 0x190;
+        inline constexpr uintptr_t Scale = 0x144;
     }
 
     namespace ModuleScript {
@@ -245,7 +246,7 @@ namespace offsets {
         inline constexpr uintptr_t ModelInstance = 0x298;
         inline constexpr uintptr_t PlatformName = 0x13F8;
         inline constexpr uintptr_t Team = 0x2D8;
-        inline constexpr uintptr_t UserId = 0xE0;
+        inline constexpr uintptr_t UserId = 0x300;
     }
 
     namespace Players {
@@ -328,8 +329,8 @@ namespace offsets {
     }
 
     namespace TextLabel {
-        inline constexpr uintptr_t RichText = 0xB78;
-        inline constexpr uintptr_t Text = 0xDE8;
+        inline constexpr uintptr_t RichText = 0xD8E;
+        inline constexpr uintptr_t Text = 0xB78;
         inline constexpr uintptr_t TextColor3 = 0xE98;
     }
 
