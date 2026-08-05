@@ -103,6 +103,11 @@ namespace Settings
 	bool flyKeyToggled{ false };
 	float flySpeed{ 16.0f };
 	bool orbitEnabled{ false };
+	float orbitDistanceMultiplier{ 1.0f };
+	bool behindPlayerEnabled{ true };
+	int behindPlayerKey{ 0 };
+	float behindPlayerDistance{ 4.0f };
+	float behindPlayerFOV{ 250.0f };
 	int walkSpeedSet{};
 	int jumpPowerSet{};
 	char othersRobloxPlr[64]{};
@@ -657,7 +662,7 @@ int main()
 
 			if (Settings::mainMenuVisible)
 			{
-				ImGui::SetNextWindowSize({ 1057, 600 });
+				ImGui::SetNextWindowSize({ 1057, 660 });
 
 				ImGui::Begin("DK", (bool*)0, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
 
@@ -671,7 +676,7 @@ int main()
 					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, ImGui::GetStyle().WindowRounding);
 
 				// tab bar
-				drawList->AddRectFilled({ p.x - 12.0f, p.y - 12.0f }, { p.x + 160.0f, p.y + 600.0f }, IM_COL32(17, 17, 17, 204), 6.0f);
+				drawList->AddRectFilled({ p.x - 12.0f, p.y - 12.0f }, { p.x + 160.0f, p.y + 660.0f }, IM_COL32(17, 17, 17, 204), 6.0f);
 
 				if (dkLogoImg)
 					drawList->AddImage((void*)dkLogoImg, { winPos.x + 8.0f, winPos.y + 4.0f }, { winPos.x + 152.0f, winPos.y + 140.0f });
@@ -1058,6 +1063,16 @@ int main()
 							Settings::flyKey = config["misc"]["flyKey"].get<int>();
 							if (config["misc"].contains("flySpeed"))
 								Settings::flySpeed = config["misc"]["flySpeed"].get<float>();
+							if (config["misc"].contains("orbitDistanceMultiplier"))
+								Settings::orbitDistanceMultiplier = config["misc"]["orbitDistanceMultiplier"].get<float>();
+							if (config["misc"].contains("behindPlayerEnabled"))
+								Settings::behindPlayerEnabled = config["misc"]["behindPlayerEnabled"].get<bool>();
+							if (config["misc"].contains("behindPlayerKey"))
+								Settings::behindPlayerKey = config["misc"]["behindPlayerKey"].get<int>();
+							if (config["misc"].contains("behindPlayerDistance"))
+								Settings::behindPlayerDistance = config["misc"]["behindPlayerDistance"].get<float>();
+							if (config["misc"].contains("behindPlayerFOV"))
+								Settings::behindPlayerFOV = config["misc"]["behindPlayerFOV"].get<float>();
 
 							iF.close();
 							configList = ListConfigFiles();
@@ -1118,6 +1133,11 @@ int main()
 							config["misc"]["flyEnabled"] = Settings::flyEnabled;
 							config["misc"]["flyKey"] = Settings::flyKey;
 							config["misc"]["flySpeed"] = Settings::flySpeed;
+							config["misc"]["orbitDistanceMultiplier"] = Settings::orbitDistanceMultiplier;
+							config["misc"]["behindPlayerEnabled"] = Settings::behindPlayerEnabled;
+							config["misc"]["behindPlayerKey"] = Settings::behindPlayerKey;
+							config["misc"]["behindPlayerDistance"] = Settings::behindPlayerDistance;
+							config["misc"]["behindPlayerFOV"] = Settings::behindPlayerFOV;
 
 							const std::filesystem::path path{ std::filesystem::path("configs") / (std::string(Settings::configFileName) + ".json") };
 							std::ofstream oF(path);
@@ -1173,8 +1193,8 @@ int main()
 					constexpr float col2X{ 450.0f };
 					constexpr float col3X{ 730.0f };
 					constexpr float colW{ 270.0f };
-					constexpr float topH{ 335.0f };
-					constexpr float humY{ 350.0f };
+					constexpr float topH{ 390.0f };
+					constexpr float humY{ 405.0f };
 					constexpr float humH{ 210.0f };
 					constexpr float pad{ 12.0f };
 					constexpr float itemW{ 240.0f };
@@ -1257,6 +1277,8 @@ int main()
 					{
 						Settings::orbitEnabled = false;
 					}
+					ImGui::Text("Orbit distance");
+					ImGui::SliderFloat("##Orbit distance", &Settings::orbitDistanceMultiplier, 0.25f, 5.0f, "%.2fx");
 					ImGui::EndGroup();
 
 					ImGui::SetCursorPos({ col3X + pad, 15.0f });
@@ -1266,6 +1288,12 @@ int main()
 					ImGui::Hotkey(&Settings::flyKey, { 100, 20 });
 					ImGui::Text("Fly speed");
 					ImGui::SliderFloat("##Fly speed", &Settings::flySpeed, 1.0f, 200.0f, "%.1f");
+					ImGui::Checkbox("Behind player", &Settings::behindPlayerEnabled);
+					ImGui::Hotkey(&Settings::behindPlayerKey, { 100, 20 });
+					ImGui::Text("Behind distance");
+					ImGui::SliderFloat("##Behind distance", &Settings::behindPlayerDistance, 1.0f, 20.0f, "%.1f");
+					ImGui::Text("Behind FOV");
+					ImGui::SliderFloat("##Behind FOV", &Settings::behindPlayerFOV, 50.0f, 500.0f, "%.0f");
 					ImGui::Checkbox("Toggle noclip", &Settings::noclipEnabled);
 					if (ImGui::Checkbox("Hide Stream", &Settings::streamproofEnabled))
 					{
@@ -1335,6 +1363,8 @@ int main()
 					DrawKeybindProp("Triggerbot", "HOLD", Settings::triggerbotKey, Settings::triggerbotEnabled && IsBindDown(Settings::triggerbotKey));
 					ImGui::SetCursorPosX(175.0f);
 					DrawKeybindProp("Fly", "TOGGLE", Settings::flyKey, Settings::flyEnabled && Settings::flyKeyToggled);
+					ImGui::SetCursorPosX(175.0f);
+					DrawKeybindProp("Behind player", "PRESS", Settings::behindPlayerKey, Settings::behindPlayerEnabled && IsBindDown(Settings::behindPlayerKey));
 				}
 
 				ImGui::End();
@@ -1536,7 +1566,7 @@ int main()
 
 		if (Settings::keybindListVisible)
 		{
-			ImGui::SetNextWindowSize({ 300, 220 });
+			ImGui::SetNextWindowSize({ 300, 250 });
 			ImGui::Begin("DK - Keybind List", (bool*)0, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
 
 			ImVec2 winPos{ ImGui::GetWindowPos() };
@@ -1547,11 +1577,13 @@ int main()
 			const bool aimActive{ Settings::aimbotEnabled && (Settings::aimbotToggleLock ? Settings::aimbotLockToggled : IsBindDown(Settings::aimbotKey)) };
 			const bool triggerActive{ Settings::triggerbotEnabled && IsBindDown(Settings::triggerbotKey) };
 			const bool flyActive{ Settings::flyEnabled && Settings::flyKeyToggled };
+			const bool behindActive{ Settings::behindPlayerEnabled && IsBindDown(Settings::behindPlayerKey) };
 
 			DrawKeybindProp("Toggle GUI", "TOGGLE", Settings::toggleGuiKey, Settings::imguiVisible);
 			DrawKeybindProp("Aimbot", Settings::aimbotToggleLock ? "TOGGLE" : "HOLD", Settings::aimbotKey, aimActive);
 			DrawKeybindProp("Triggerbot", "HOLD", Settings::triggerbotKey, triggerActive);
 			DrawKeybindProp("Fly", "TOGGLE", Settings::flyKey, flyActive);
+			DrawKeybindProp("Behind player", "PRESS", Settings::behindPlayerKey, behindActive);
 			DrawKeybindProp("Silent Aim", "FEATURE", 0, Settings::silentAimEnabled);
 			DrawKeybindProp("ESP", "FEATURE", 0, Settings::espEnabled);
 
@@ -2060,6 +2092,90 @@ int main()
 			RBX::Memory::write<int>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::CanCollide), 0);
 		}
 
+		if (Settings::behindPlayerEnabled && Settings::behindPlayerKey != 0 && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
+		{
+			static bool behindPrevDown{ false };
+			const bool behindDown{ IsBindDown(Settings::behindPlayerKey) };
+			if (behindDown && !behindPrevDown)
+			{
+				POINT mousePos{};
+				GetCursorPos(&mousePos);
+
+				float bestDist{ Settings::behindPlayerFOV };
+				RBX::Instance bestModel{ nullptr };
+				std::string bestName{};
+
+				for (RBX::Instance player : players.getChildren())
+				{
+					const std::string name{ player.name() };
+					if (name.empty() || name == localPlayer.name() || IsFriend(name))
+						continue;
+
+					RBX::Instance model{ player.getModelInstance() };
+					if (!model.address)
+						continue;
+
+					RBX::Instance targetHrp{ model.findFirstChild("HumanoidRootPart") };
+					if (!targetHrp.address)
+						continue;
+
+					RBX::Vector2 screenPos{ visualEngine.worldToScreen(targetHrp.getPosition()) };
+					if (screenPos.x < 0.0f || screenPos.y < 0.0f || screenPos.x > monitorWidth || screenPos.y > monitorHeight)
+						continue;
+
+					const float dx{ screenPos.x - static_cast<float>(mousePos.x) };
+					const float dy{ screenPos.y - static_cast<float>(mousePos.y) };
+					const float dist{ sqrtf(dx * dx + dy * dy) };
+					if (dist < bestDist)
+					{
+						bestDist = dist;
+						bestModel = model;
+						bestName = name;
+					}
+				}
+
+				if (bestModel.address)
+				{
+					RBX::Instance targetHrp{ bestModel.findFirstChild("HumanoidRootPart") };
+					void* targetPrim{ targetHrp.getPrimitive() };
+					if (targetPrim)
+					{
+						RBX::Vector3 targetPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
+						RBX::Matrix3 targetRot{ RBX::Memory::read<RBX::Matrix3>((void*)((uintptr_t)targetPrim + Offsets::Rotation)) };
+
+						RBX::Vector3 look{ -targetRot.data[2], 0.0f, -targetRot.data[8] };
+						const float lookLen{ sqrtf(look.x * look.x + look.z * look.z) };
+						if (lookLen > 0.0001f)
+						{
+							look.x /= lookLen;
+							look.z /= lookLen;
+						}
+						else
+						{
+							look = { 0.0f, 0.0f, 1.0f };
+						}
+
+						RBX::Vector3 behindPos{
+							targetPos.x - look.x * Settings::behindPlayerDistance,
+							targetPos.y,
+							targetPos.z - look.z * Settings::behindPlayerDistance
+						};
+
+						void* localPrim{ hrp.getPrimitive() };
+						if (localPrim)
+						{
+							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)localPrim + Offsets::Position), behindPos);
+							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)localPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+						}
+
+						if (!bestName.empty())
+							strncpy_s(Settings::othersRobloxPlr, bestName.c_str(), _TRUNCATE);
+					}
+				}
+			}
+			behindPrevDown = behindDown;
+		}
+
 		if (Settings::orbitEnabled)
 		{
 			RBX::Instance plr{ players.findFirstChild(Settings::othersRobloxPlr) };
@@ -2070,8 +2186,9 @@ int main()
 
 			rot += 0.016f * rotspeed;
 
+			const float orbitR{ static_cast<float>(radius) * Settings::orbitDistanceMultiplier };
 			double offsetAngle{ rot };
-			RBX::Vector3 offset{ sin(offsetAngle) * eclipse, 0, cos(offsetAngle) * radius };
+			RBX::Vector3 offset{ static_cast<float>(sin(offsetAngle) * orbitR), 0.0f, static_cast<float>(cos(offsetAngle) * orbitR) };
 
 			RBX::Vector3 targetPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)plrHrp.getPrimitive() + Offsets::Position))};
 			RBX::Vector3 newPos{ targetPos.x + offset.x, targetPos.y + offset.y, targetPos.z + offset.z };
