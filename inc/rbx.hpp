@@ -175,8 +175,20 @@ namespace RBX
 		std::string name()
 		{
 			void* ptr{ Memory::read<void*>((void*)((uintptr_t)address + Offsets::Name)) };
+			if (ptr == nullptr)
+			{
+				return std::string();
+			}
 
-			return (ptr != nullptr) ? Memory::readStr(ptr) : std::string();
+			// Current Roblox NameContainer: std::string lives at +0x8
+			std::string value{ Memory::readStr((void*)((uintptr_t)ptr + 0x8)) };
+			if (!value.empty())
+			{
+				return value;
+			}
+
+			// Fallback for older layouts where Name pointed at the string object directly
+			return Memory::readStr(ptr);
 		}
 
 		std::string className()
