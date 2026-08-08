@@ -18,7 +18,7 @@ using json = nlohmann::json;
 // and attach an asset named exactly UPDATE_ASSET_NAME.
 namespace UpdaterConfig
 {
-	constexpr const char* APP_VERSION = "1.1.10";
+	constexpr const char* APP_VERSION = "1.1.11";
 	constexpr const char* GITHUB_OWNER = "Dezz0k";
 	constexpr const char* GITHUB_REPO = "Dk-External";
 	constexpr const char* UPDATE_ASSET_NAME = "DkExternal.exe";
@@ -26,6 +26,19 @@ namespace UpdaterConfig
 
 namespace Updater
 {
+	enum class Result
+	{
+		Continue,      // already on latest — safe to run
+		ExitForUpdate, // update applied; process should exit and restart
+		ExitBlocked    // could not verify/update — do not allow old build to run
+	};
+
+	inline void FailPause(const std::string& message)
+	{
+		std::cout << message << "\n";
+		system("pause");
+	}
+
 	inline std::string HttpGet(const std::string& url)
 	{
 		std::string result;
@@ -174,6 +187,11 @@ namespace Updater
 		return false;
 	}
 
+	inline bool IsSameVersion(const std::string& remoteVersion, const std::string& localVersion)
+	{
+		return ParseVersion(remoteVersion) == ParseVersion(localVersion);
+	}
+
 	inline std::filesystem::path GetExePath()
 	{
 		char path[MAX_PATH]{};
@@ -216,16 +234,11 @@ namespace Updater
 		return true;
 	}
 
-	// Returns true if the process should exit because an update was applied.
-	inline bool CheckAndUpdate()
+	// Must run before anything else.
+	// Old builds are blocked unless they successfully update to the latest GitHub release.
+	inline Result CheckAndUpdate()
 	{
-		if (std::string(UpdaterConfig::GITHUB_OWNER) == "REPLACE_ME")
-		{
-			std::cout << "Updater: GitHub owner not set. Skipping update check.\n";
-			return false;
-		}
-
-		std::cout << "Checking for updates (v" << UpdaterConfig::APP_VERSION << ")...\n";
+		std::cout << "Checking for updates (local v" << UpdaterConfig::APP_VERSION << ")...\n";
 
 		const std::string apiUrl =
 			std::string("https://api.github.com/repos/") +
@@ -235,8 +248,8 @@ namespace Updater
 		const std::string body = HttpGet(apiUrl);
 		if (body.empty())
 		{
-			std::cout << "Updater: could not reach GitHub. Continuing.\n";
-			return false;
+			FailPause("Updater: could not reach GitHub. Internet is required — blocked.");
+			return Result::ExitBlocked;
 		}
 
 		json release;
@@ -246,21 +259,40 @@ namespace Updater
 		}
 		catch (...)
 		{
-			std::cout << "Updater: invalid release response. Continuing.\n";
-			return false;
+			FailPause("Updater: invalid release response — blocked.");
+			return Result::ExitBlocked;
+		}
+
+		if (release.contains("message") && release["message"].is_string())
+		{
+			const std::string msg = release["message"].get<std::string>();
+			if (msg.find("Not Found") != std::string::npos || msg.find("rate limit") != std::string::npos)
+			{
+				FailPause("Updater: " + msg + " — blocked.");
+				return Result::ExitBlocked;
+			}
 		}
 
 		if (!release.contains("tag_name") || !release["tag_name"].is_string())
 		{
-			std::cout << "Updater: no releases found. Continuing.\n";
-			return false;
+			FailPause("Updater: no GitHub releases found — blocked.");
+			return Result::ExitBlocked;
 		}
 
 		const std::string remoteTag = release["tag_name"].get<std::string>();
-		if (!IsRemoteNewer(remoteTag, UpdaterConfig::APP_VERSION))
+
+		if (IsSameVersion(remoteTag, UpdaterConfig::APP_VERSION))
 		{
 			std::cout << "Updater: up to date (" << remoteTag << ").\n";
-			return false;
+			return Result::Continue;
+		}
+
+		if (!IsRemoteNewer(remoteTag, UpdaterConfig::APP_VERSION))
+		{
+			// Local is ahead of published release (dev build) — allow.
+			std::cout << "Updater: local v" << UpdaterConfig::APP_VERSION
+				<< " is newer than release " << remoteTag << ". Continuing.\n";
+			return Result::Continue;
 		}
 
 		std::string downloadUrl;
@@ -281,32 +313,33 @@ namespace Updater
 
 		if (downloadUrl.empty())
 		{
-			std::cout << "Updater: release " << remoteTag
-				<< " has no asset named \"" << UpdaterConfig::UPDATE_ASSET_NAME << "\". Continuing.\n";
-			return false;
+			FailPause(
+				std::string("Updater: release ") + remoteTag +
+				" has no asset named \"" + UpdaterConfig::UPDATE_ASSET_NAME + "\" — blocked.");
+			return Result::ExitBlocked;
 		}
 
-		std::cout << "Updater: downloading " << remoteTag << "...\n";
+		std::cout << "Updater: outdated build. Downloading " << remoteTag << "...\n";
 
 		const auto exePath = GetExePath();
 		const auto tempPath = exePath.parent_path() / (exePath.filename().string() + ".new");
 
 		if (!HttpDownloadFile(downloadUrl, tempPath))
 		{
-			std::cout << "Updater: download failed. Continuing.\n";
-			return false;
+			FailPause("Updater: download failed — blocked. Retry when online.");
+			return Result::ExitBlocked;
 		}
 
 		std::cout << "Updater: installing update and restarting...\n";
 
 		if (!ApplyUpdate(tempPath))
 		{
-			std::cout << "Updater: failed to apply update. Continuing.\n";
 			std::error_code ec;
 			std::filesystem::remove(tempPath, ec);
-			return false;
+			FailPause("Updater: failed to apply update — blocked.");
+			return Result::ExitBlocked;
 		}
 
-		return true;
+		return Result::ExitForUpdate;
 	}
 }

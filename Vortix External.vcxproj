@@ -162,6 +162,8 @@
     <ClInclude Include="inc\Renderer.hpp" />
     <ClInclude Include="inc\snowflake\Snowflake.hpp" />
     <ClInclude Include="inc\utils.hpp" />
+    <ClInclude Include="inc\updater.hpp" />
+    <ClInclude Include="inc\keyauth.hpp" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>

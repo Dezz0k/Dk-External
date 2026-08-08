@@ -29,6 +29,7 @@ Win32/
 
 ## Runtime / local
 settings.json
+license.json
 themes/
 configs/
 *.new

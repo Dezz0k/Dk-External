@@ -24,6 +24,7 @@
 #include "inc/rbx.hpp"
 #include "inc/utils.hpp"
 #include "inc/updater.hpp"
+#include "inc/keyauth.hpp"
 
 #include "inc/offsets.hpp"
 
@@ -209,8 +210,14 @@ int main()
 {
 	SetConsoleTitleA("Dk External v1.1");
 
-	if (Updater::CheckAndUpdate())
-		return 0;
+	// Force latest GitHub release before anything else — old builds cannot continue.
+	{
+		const Updater::Result updateResult = Updater::CheckAndUpdate();
+		if (updateResult == Updater::Result::ExitForUpdate)
+			return 0;
+		if (updateResult == Updater::Result::ExitBlocked)
+			return 1;
+	}
 
 	std::cout << "Loading local offsets (" << Offsets::clientVersion << ")...\n";
 
@@ -225,6 +232,9 @@ int main()
 	{
 		std::cout << "Loaded offsets.\n";
 	}
+
+	if (!KeyAuth::PromptAndAuthenticate())
+		return 1;
 
 	std::cout << "\nPerformance mode:\n";
 	std::cout << "  [1] High end  (full visuals)\n";
@@ -253,6 +263,7 @@ int main()
 	std::cin.get();
 
 	system("cls");
+	std::cout << "\n"; // keep line 0 free for live key timer
 
 	if (RBX::Memory::attach())
 	{
@@ -261,6 +272,7 @@ int main()
 		Sleep(1000);
 
 		system("cls");
+		std::cout << "\n";
 	}
 	else
 	{
@@ -285,8 +297,10 @@ int main()
 		}
 
 		system("cls");
+		std::cout << "\n";
 	}
 
+	KeyAuth::StopLiveCountdown();
 	FreeConsole();
 
 	json settingsJ;
