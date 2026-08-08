@@ -61,16 +61,40 @@ namespace KeyAuth
 
 	inline std::string GetHwid()
 	{
+		// KeyAuth app settings require HWID length >= 20.
 		DWORD serial = 0;
 		GetVolumeInformationA("C:\\", nullptr, 0, &serial, nullptr, nullptr, nullptr, 0);
 
 		char computerName[MAX_COMPUTERNAME_LENGTH + 1]{};
-		DWORD size = MAX_COMPUTERNAME_LENGTH + 1;
-		GetComputerNameA(computerName, &size);
+		DWORD computerSize = MAX_COMPUTERNAME_LENGTH + 1;
+		GetComputerNameA(computerName, &computerSize);
+
+		char userName[256]{};
+		DWORD userSize = 256;
+		GetUserNameA(userName, &userSize);
+
+		const std::string raw =
+			std::string(computerName) + "|" +
+			std::string(userName) + "|" +
+			std::to_string(serial) + "|Dkex";
+
+		unsigned long long hash1 = 14695981039346656037ull;
+		for (unsigned char c : raw)
+		{
+			hash1 ^= c;
+			hash1 *= 1099511628211ull;
+		}
+
+		unsigned long long hash2 = 0xcbf29ce484222325ull ^ serial;
+		for (unsigned char c : raw)
+			hash2 = (hash2 * 131ull) + c;
 
 		std::ostringstream oss;
-		oss << computerName << "-" << std::hex << serial;
-		return oss.str();
+		oss << std::hex << std::nouppercase << std::setfill('0')
+			<< std::setw(16) << hash1
+			<< std::setw(16) << hash2
+			<< std::setw(8) << serial;
+		return oss.str(); // always 40 hex chars
 	}
 
 	inline std::string HttpPost(const std::string& body)
