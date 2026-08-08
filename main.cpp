@@ -214,7 +214,7 @@ int main()
 	{
 		const Updater::Result updateResult = Updater::CheckAndUpdate();
 		if (updateResult == Updater::Result::ExitForUpdate)
-			return 0;
+			ExitProcess(0); // let the updater script replace this exe and relaunch
 		if (updateResult == Updater::Result::ExitBlocked)
 			return 1;
 	}

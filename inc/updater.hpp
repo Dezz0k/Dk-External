@@ -18,7 +18,7 @@ using json = nlohmann::json;
 // and attach an asset named exactly UPDATE_ASSET_NAME.
 namespace UpdaterConfig
 {
-	constexpr const char* APP_VERSION = "1.1.11";
+	constexpr const char* APP_VERSION = "1.1.12";
 	constexpr const char* GITHUB_OWNER = "Dezz0k";
 	constexpr const char* GITHUB_REPO = "Dk-External";
 	constexpr const char* UPDATE_ASSET_NAME = "DkExternal.exe";
@@ -83,6 +83,17 @@ namespace Updater
 		return result;
 	}
 
+	inline bool IsValidPeFile(const std::filesystem::path& path)
+	{
+		std::ifstream in(path, std::ios::binary);
+		if (!in.is_open())
+			return false;
+
+		char magic[2]{};
+		in.read(magic, 2);
+		return in.gcount() == 2 && magic[0] == 'M' && magic[1] == 'Z';
+	}
+
 	inline bool HttpDownloadFile(const std::string& url, const std::filesystem::path& outPath)
 	{
 		HINTERNET hInternet = InternetOpenA(
@@ -102,7 +113,8 @@ namespace Updater
 			url.c_str(),
 			headers,
 			static_cast<DWORD>(strlen(headers)),
-			INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE,
+			INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE |
+			INTERNET_FLAG_NO_UI,
 			0);
 
 		if (!hUrl)
@@ -111,7 +123,21 @@ namespace Updater
 			return false;
 		}
 
-		std::ofstream out(outPath, std::ios::binary);
+		// Prefer the GitHub API asset redirect chain to land on the real binary.
+		DWORD status = 0;
+		DWORD statusSize = sizeof(status);
+		HttpQueryInfoA(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &status, &statusSize, nullptr);
+		if (status != 0 && status != 200 && status != 302 && status != 301)
+		{
+			InternetCloseHandle(hUrl);
+			InternetCloseHandle(hInternet);
+			return false;
+		}
+
+		std::error_code ec;
+		std::filesystem::remove(outPath, ec);
+
+		std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
 		if (!out.is_open())
 		{
 			InternetCloseHandle(hUrl);
@@ -134,9 +160,8 @@ namespace Updater
 		InternetCloseHandle(hUrl);
 		InternetCloseHandle(hInternet);
 
-		if (!ok || !std::filesystem::exists(outPath) || std::filesystem::file_size(outPath) == 0)
+		if (!ok || !std::filesystem::exists(outPath) || std::filesystem::file_size(outPath) < 64 || !IsValidPeFile(outPath))
 		{
-			std::error_code ec;
 			std::filesystem::remove(outPath, ec);
 			return false;
 		}
@@ -202,35 +227,71 @@ namespace Updater
 	inline bool ApplyUpdate(const std::filesystem::path& downloadedExe)
 	{
 		const auto exePath = GetExePath();
-		const auto batPath = exePath.parent_path() / "dk_update.bat";
+		const auto dir = exePath.parent_path();
+		const auto batPath = dir / "dk_update.bat";
+		const std::string exeName = exePath.filename().string();
 
 		std::ofstream bat(batPath);
 		if (!bat.is_open())
 			return false;
 
+		// Wait for this process to exit, replace TARGET in-place, scrub leftovers, relaunch only TARGET.
 		bat
 			<< "@echo off\r\n"
-			<< "setlocal\r\n"
+			<< "setlocal EnableExtensions\r\n"
+			<< "set \"DIR=" << dir.string() << "\"\r\n"
 			<< "set \"TARGET=" << exePath.string() << "\"\r\n"
 			<< "set \"NEWFILE=" << downloadedExe.string() << "\"\r\n"
+			<< "set \"EXENAME=" << exeName << "\"\r\n"
+			<< "cd /d \"%DIR%\"\r\n"
 			<< ":wait\r\n"
-			<< "timeout /t 1 /nobreak >nul\r\n"
-			<< "del \"%TARGET%\" >nul 2>&1\r\n"
+			<< "ping 127.0.0.1 -n 2 >nul\r\n"
+			<< "tasklist /FI \"IMAGENAME eq %EXENAME%\" 2>nul | find /I \"%EXENAME%\" >nul\r\n"
+			<< "if not errorlevel 1 goto wait\r\n"
+			<< "del /f /q \"%TARGET%\" >nul 2>&1\r\n"
 			<< "if exist \"%TARGET%\" goto wait\r\n"
-			<< "move /y \"%NEWFILE%\" \"%TARGET%\" >nul\r\n"
-			<< "start \"\" \"%TARGET%\"\r\n"
-			<< "del \"%~f0\" >nul 2>&1\r\n";
+			<< "copy /y \"%NEWFILE%\" \"%TARGET%\" >nul\r\n"
+			<< "if not exist \"%TARGET%\" (\r\n"
+			<< "  echo Updater failed to replace exe.\r\n"
+			<< "  pause\r\n"
+			<< "  exit /b 1\r\n"
+			<< ")\r\n"
+			<< "del /f /q \"%NEWFILE%\" >nul 2>&1\r\n"
+			<< "del /f /q \"%DIR%\\*.new\" >nul 2>&1\r\n"
+			<< "del /f /q \"%DIR%\\DkExternal.exe\" >nul 2>&1\r\n"
+			<< "del /f /q \"%DIR%\\DkExternal.exe.new\" >nul 2>&1\r\n"
+			<< "start \"Dk External\" /D \"%DIR%\" \"%TARGET%\"\r\n"
+			<< "del /f /q \"%~f0\" >nul 2>&1\r\n";
 
 		bat.close();
 
-		ShellExecuteA(
-			nullptr,
-			"open",
-			batPath.string().c_str(),
-			nullptr,
-			exePath.parent_path().string().c_str(),
-			SW_HIDE);
+		STARTUPINFOA si{};
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESHOWWINDOW;
+		si.wShowWindow = SW_HIDE;
+		PROCESS_INFORMATION pi{};
 
+		std::string cmd = "cmd.exe /C \"\"" + batPath.string() + "\"\"";
+		std::vector<char> cmdBuf(cmd.begin(), cmd.end());
+		cmdBuf.push_back('\0');
+
+		const BOOL created = CreateProcessA(
+			nullptr,
+			cmdBuf.data(),
+			nullptr,
+			nullptr,
+			FALSE,
+			CREATE_NO_WINDOW,
+			nullptr,
+			dir.string().c_str(),
+			&si,
+			&pi);
+
+		if (!created)
+			return false;
+
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
 		return true;
 	}
 
@@ -322,7 +383,8 @@ namespace Updater
 		std::cout << "Updater: outdated build. Downloading " << remoteTag << "...\n";
 
 		const auto exePath = GetExePath();
-		const auto tempPath = exePath.parent_path() / (exePath.filename().string() + ".new");
+		const auto dir = exePath.parent_path();
+		const auto tempPath = dir / "dk_update_payload.exe";
 
 		if (!HttpDownloadFile(downloadUrl, tempPath))
 		{
@@ -330,7 +392,7 @@ namespace Updater
 			return Result::ExitBlocked;
 		}
 
-		std::cout << "Updater: installing update and restarting...\n";
+		std::cout << "Updater: replacing old build and restarting...\n";
 
 		if (!ApplyUpdate(tempPath))
 		{
