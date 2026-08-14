@@ -18,7 +18,7 @@ using json = nlohmann::json;
 // and attach an asset named exactly UPDATE_ASSET_NAME.
 namespace UpdaterConfig
 {
-	constexpr const char* APP_VERSION = "1.1.13";
+	constexpr const char* APP_VERSION = "1.2.1";
 	constexpr const char* GITHUB_OWNER = "Dezz0k";
 	constexpr const char* GITHUB_REPO = "Dk-External";
 	constexpr const char* UPDATE_ASSET_NAME = "DkExternal.exe";
@@ -229,27 +229,30 @@ namespace Updater
 		const auto exePath = GetExePath();
 		const auto dir = exePath.parent_path();
 		const auto batPath = dir / "dk_update.bat";
-		const std::string exeName = exePath.filename().string();
+		const DWORD pid = GetCurrentProcessId();
 
 		std::ofstream bat(batPath);
 		if (!bat.is_open())
 			return false;
 
-		// Wait for this process to exit, replace TARGET in-place, scrub leftovers, relaunch only TARGET.
+		// Wait for THIS pid to exit, then overwrite the exact launched path (same folder + filename).
 		bat
 			<< "@echo off\r\n"
 			<< "setlocal EnableExtensions\r\n"
 			<< "set \"DIR=" << dir.string() << "\"\r\n"
 			<< "set \"TARGET=" << exePath.string() << "\"\r\n"
 			<< "set \"NEWFILE=" << downloadedExe.string() << "\"\r\n"
-			<< "set \"EXENAME=" << exeName << "\"\r\n"
+			<< "set \"PID=" << pid << "\"\r\n"
 			<< "cd /d \"%DIR%\"\r\n"
 			<< ":wait\r\n"
 			<< "ping 127.0.0.1 -n 2 >nul\r\n"
-			<< "tasklist /FI \"IMAGENAME eq %EXENAME%\" 2>nul | find /I \"%EXENAME%\" >nul\r\n"
+			<< "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
 			<< "if not errorlevel 1 goto wait\r\n"
 			<< "del /f /q \"%TARGET%\" >nul 2>&1\r\n"
-			<< "if exist \"%TARGET%\" goto wait\r\n"
+			<< "if exist \"%TARGET%\" (\r\n"
+			<< "  ping 127.0.0.1 -n 2 >nul\r\n"
+			<< "  del /f /q \"%TARGET%\" >nul 2>&1\r\n"
+			<< ")\r\n"
 			<< "copy /y \"%NEWFILE%\" \"%TARGET%\" >nul\r\n"
 			<< "if not exist \"%TARGET%\" (\r\n"
 			<< "  echo Updater failed to replace exe.\r\n"

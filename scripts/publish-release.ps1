@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
 
-    [string]$ExePath = "x64\Release\Dk External v1.1.exe",
+    [string]$ExePath = "x64\Release\Dk External v1.2.1.exe",
     [string]$AssetName = "DkExternal.exe"
 )
 

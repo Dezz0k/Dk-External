@@ -320,7 +320,9 @@ namespace RBX
 			return Memory::read<Matrix4>((void*)((uintptr_t)address + Offsets::viewmatrix));
 		}
 
-		Vector2 worldToScreen(const Vector3& world)
+		// trackBehind: when target is behind the camera, still return a screen-space
+		// direction so aim/toggle-lock can turn the camera around instead of dropping.
+		Vector2 worldToScreen(const Vector3& world, bool trackBehind = false)
 		{
 			Vector4 quaternion;
 
@@ -334,18 +336,43 @@ namespace RBX
 
 			Vector2 screen;
 
-			if (quaternion.w < 0.1f)
+			const bool behind{ quaternion.w < 0.1f };
+			if (behind && !trackBehind)
 			{
 				return screen;
 			}
 
-			Vector3 normalizedDeviceCoordinates;
-			normalizedDeviceCoordinates.x = quaternion.x / quaternion.w;
-			normalizedDeviceCoordinates.y = quaternion.y / quaternion.w;
-			normalizedDeviceCoordinates.z = quaternion.z / quaternion.w;
+			float w{ quaternion.w };
+			if (fabsf(w) < 0.001f)
+				w = (w < 0.0f) ? -0.001f : 0.001f;
 
-			screen.x = (dimensions.x / 2.0f * normalizedDeviceCoordinates.x) + (dimensions.x / 2.0f);
-			screen.y = -(dimensions.y / 2.0f * normalizedDeviceCoordinates.y) + (dimensions.y / 2.0f);
+			float ndcX{ quaternion.x / w };
+			float ndcY{ quaternion.y / w };
+
+			if (behind)
+			{
+				// Flip through center so mouse move rotates toward the target behind you.
+				ndcX = -ndcX;
+				ndcY = -ndcY;
+				const float mag{ sqrtf(ndcX * ndcX + ndcY * ndcY) };
+				if (mag < 0.2f)
+				{
+					if (mag < 1e-5f)
+					{
+						ndcX = 1.0f;
+						ndcY = 0.0f;
+					}
+					else
+					{
+						const float scale{ 0.2f / mag };
+						ndcX *= scale;
+						ndcY *= scale;
+					}
+				}
+			}
+
+			screen.x = (dimensions.x / 2.0f * ndcX) + (dimensions.x / 2.0f);
+			screen.y = -(dimensions.y / 2.0f * ndcY) + (dimensions.y / 2.0f);
 
 			return screen;
 		}

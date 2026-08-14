@@ -112,7 +112,7 @@
     </Link>
   </ItemDefinitionGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <TargetName>Dk External v1.1</TargetName>
+    <TargetName>Dk External v1.2.1</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -159,7 +159,7 @@
     <ClInclude Include="inc\offsets\offsets_dump_previous.hpp" />
     <ClInclude Include="inc\offsets.hpp" />
     <ClInclude Include="inc\rbx.hpp" />
-    <ClInclude Include="inc\Renderer.hpp" />
+    <ClInclude Include="inc\SkechGui.hpp" />
     <ClInclude Include="inc\snowflake\Snowflake.hpp" />
     <ClInclude Include="inc\utils.hpp" />
     <ClInclude Include="inc\updater.hpp" />
@@ -173,11 +173,12 @@
     <None Include="Vortix External.aps" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="Assets\admin icon.png" />
     <Image Include="Assets\bullseye.png" />
     <Image Include="Assets\cards.png" />
     <Image Include="Assets\dice.png" />
     <Image Include="Assets\dk logo.ico" />
-    <Image Include="Assets\dk logo.png" />
+    <Image Include="Assets\smitdk_logo.png" />
     <Image Include="Assets\esp preview avatar.png" />
     <Image Include="Assets\esp_person.png" />
     <Image Include="Assets\explorer icon.png" />

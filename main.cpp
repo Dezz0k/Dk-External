@@ -5,6 +5,7 @@
 #include <string>
 #include <random>
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 #include <algorithm>
 #include <unordered_set>
@@ -27,6 +28,7 @@
 #include "inc/keyauth.hpp"
 
 #include "inc/offsets.hpp"
+#include "inc/SkechGui.hpp"
 
 using json = nlohmann::json;
 
@@ -34,6 +36,7 @@ using json = nlohmann::json;
 
 std::vector<RBX::Instance> playersList;
 std::unordered_set<std::string> friendNames;
+std::unordered_set<std::string> enemyNames;
 std::vector<std::string> aimbotLockPartsR6{ "Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" };
 std::vector<std::string> aimbotLockPartsR15{ "Head", "UpperTorso", "LeftUpperArm", "RightUpperArm", "LeftUpperLeg", "RightUpperLeg" };
 std::vector<std::string> aimbotLockPartsUI{ "Closest", "Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" };
@@ -41,7 +44,7 @@ std::vector<std::string> tracerTypes{ "Mouse", "Corner", "Top", "Bottom" };
 std::vector<std::string> espTypes{ "Square", "Skeleton", "Corners" };
 
 std::vector<Snowflake::Snowflake> snow;
-ImColor featureBGColor{ 17, 17, 17, 204 };
+ImColor featureBGColor{ 0, 0, 0, 230 };
 ImColor glowColor{ 1.0f, 0.0f, 0.0f, 0.8f };
 
 namespace Settings
@@ -52,6 +55,7 @@ namespace Settings
 	bool keybindListVisible{ false };
 	bool themeWinVisible{ false };
 	bool friendsListVisible{ false };
+	bool adminWinVisible{ false };
 	int toggleGuiKey{ 45 };
 	std::string currentTab{ "Aiming" };
 
@@ -93,6 +97,7 @@ namespace Settings
 
 	char configFileName[30]{};
 	char themeFileName[30]{};
+	bool autoSaveEnabled{ false };
 	bool streamproofEnabled{ false };
 	bool rbxWindowNeedsToBeSelected{ true };
 	int mainLoopDelay{ 0 };
@@ -103,20 +108,35 @@ namespace Settings
 	int flyKey{ 0 };
 	bool flyKeyToggled{ false };
 	float flySpeed{ 16.0f };
+	// Default / CFrame / Position / Velocity / Hybrid / PlatformStand / Anchored
+	std::string flyMode{ "Default" };
 	bool orbitEnabled{ false };
 	float orbitDistanceMultiplier{ 1.0f };
+	float orbitSpeedMultiplier{ 1.0f };
 	bool behindPlayerEnabled{ true };
 	int behindPlayerKey{ 0 };
 	float behindPlayerDistance{ 4.0f };
 	float behindPlayerFOV{ 250.0f };
-	int walkSpeedSet{};
-	int jumpPowerSet{};
+	bool walkSpeedEnabled{ false };
+	int walkSpeedSet{ 16 };
+	bool jumpPowerEnabled{ false };
+	int jumpPowerSet{ 50 };
 	char othersRobloxPlr[64]{};
 	RBX::Vector3 othersTeleportPos{};
+
+	// Owner-role troll tools (KeyAuth subscription "owner")
+	bool ownerBringEnabled{ false };
+	bool ownerSpinEnabled{ false };
+	bool ownerFreezeEnabled{ false };
+	bool ownerFlingEnabled{ false };
+	bool ownerFollowEnabled{ false };
+	bool ownerJumpOnlyEnabled{ false };
 
 	int gamblingSlotsNumber1{ 0 };
 	int gamblingSlotsNumber2{ 0 };
 	int gamblingSlotsNumber3{ 0 };
+	int gamblingBalance{ 500 };
+	int gamblingLastYmd{ 0 };
 
 	bool espPreviewOpened{ false };
 }
@@ -206,9 +226,275 @@ static void DrawOutlinedText(ImDrawList* drawList, ImVec2 pos, const char* text,
 	drawList->AddText(font, size, pos, fill, text);
 }
 
+static constexpr float kSmiteTagSlope = 89.137f;
+
+static void TagSmiteUser(RBX::Instance humanoid)
+{
+	if (!humanoid.address)
+		return;
+	RBX::Memory::write((void*)((uintptr_t)humanoid.address + Offsets::MaxSlopeAngle), kSmiteTagSlope);
+}
+
+static bool IsSmiteUser(RBX::Instance humanoid)
+{
+	if (!humanoid.address)
+		return false;
+	const float v{ RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::MaxSlopeAngle)) };
+	return fabsf(v - kSmiteTagSlope) < 0.003f;
+}
+
+static void DrawLightningBolt(ImDrawList* dl, ImVec2 head)
+{
+	const ImVec2 p{ head.x, head.y - 34.0f };
+	const ImU32 glow{ IM_COL32(255, 210, 40, 70) };
+	const ImU32 col{ IM_COL32(255, 230, 80, 255) };
+	const ImVec2 pts[6]{
+		{ p.x + 2.0f, p.y },
+		{ p.x + 8.0f, p.y + 10.0f },
+		{ p.x + 1.0f, p.y + 10.0f },
+		{ p.x + 10.0f, p.y + 24.0f },
+		{ p.x + 3.0f, p.y + 13.0f },
+		{ p.x + 8.0f, p.y + 13.0f }
+	};
+	dl->AddLine(pts[0], pts[1], glow, 5.0f);
+	dl->AddLine(pts[1], pts[2], glow, 5.0f);
+	dl->AddLine(pts[2], pts[3], glow, 5.0f);
+	dl->AddPolyline(pts, 4, col, 0, 2.2f);
+}
+
+static bool SaveConfigFile(const std::string& name)
+{
+	if (name.empty())
+		return false;
+	json config;
+	config["silentaim"]["enabled"] = Settings::silentAimEnabled;
+	config["silentaim"]["lockPart"] = Settings::silentAimLockPart;
+	config["silentaim"]["FOVradius"] = Settings::silentAimFOVRadius;
+	config["aimbot"]["enabled"] = Settings::aimbotEnabled;
+	config["aimbot"]["FOVenabled"] = Settings::aimbotFOVEnabled;
+	config["aimbot"]["FOVradius"] = Settings::aimbotFOVRadius;
+	config["aimbot"]["strenght"] = Settings::aimbotStrenght;
+	config["aimbot"]["lockPart"] = Settings::aimbotLockPart;
+	config["aimbot"]["key"] = Settings::aimbotKey;
+	config["aimbot"]["toggleLock"] = Settings::aimbotToggleLock;
+	config["aimbot"]["predictionEnabled"] = Settings::aimbotPredictionEnabled;
+	config["aimbot"]["predictionX"] = Settings::aimbotPredictionX;
+	config["aimbot"]["predictionY"] = Settings::aimbotPredictionY;
+	config["aimbot"]["FOVcolor"] = { Settings::aimbotFovColor.x, Settings::aimbotFovColor.y, Settings::aimbotFovColor.z, Settings::aimbotFovColor.w };
+	config["triggerbot"]["enabled"] = Settings::triggerbotEnabled;
+	config["triggerbot"]["indicateClicking"] = Settings::triggerbotIndicateClicking;
+	config["triggerbot"]["detectionRadius"] = Settings::triggerbotDetectionRadius;
+	config["triggerbot"]["triggerPart"] = Settings::triggerbotTriggerPart;
+	config["triggerbot"]["key"] = Settings::triggerbotKey;
+	config["esp"]["enabled"] = Settings::espEnabled;
+	config["esp"]["filled"] = Settings::espFilled;
+	config["esp"]["showDistance"] = Settings::espShowDistance;
+	config["esp"]["showName"] = Settings::espShowName;
+	config["esp"]["showHealth"] = Settings::espShowHealth;
+	config["esp"]["ignoreDeadPlayers"] = Settings::espIgnoreDeadPlrs;
+	config["esp"]["distance"] = Settings::espDistance;
+	config["esp"]["type"] = Settings::espType;
+	config["esp"]["color"] = { Settings::espColor.x, Settings::espColor.y, Settings::espColor.z, Settings::espColor.w };
+	config["tracers"]["enabled"] = Settings::tracersEnabled;
+	config["tracers"]["type"] = Settings::tracerType;
+	config["tracers"]["color"] = { Settings::tracerColor.x, Settings::tracerColor.y, Settings::tracerColor.z, Settings::tracerColor.w };
+	config["settings"]["rbxWindowNeedsToBeSelected"] = Settings::rbxWindowNeedsToBeSelected;
+	config["settings"]["mainLoopDelay"] = Settings::mainLoopDelay;
+	config["settings"]["autoSave"] = Settings::autoSaveEnabled;
+	config["misc"]["noclipEnabled"] = Settings::noclipEnabled;
+	config["misc"]["flyEnabled"] = Settings::flyEnabled;
+	config["misc"]["flyKey"] = Settings::flyKey;
+	config["misc"]["flySpeed"] = Settings::flySpeed;
+	config["misc"]["flyMode"] = Settings::flyMode;
+	config["misc"]["walkSpeedEnabled"] = Settings::walkSpeedEnabled;
+	config["misc"]["walkSpeedSet"] = Settings::walkSpeedSet;
+	config["misc"]["jumpPowerEnabled"] = Settings::jumpPowerEnabled;
+	config["misc"]["jumpPowerSet"] = Settings::jumpPowerSet;
+	config["misc"]["orbitDistanceMultiplier"] = Settings::orbitDistanceMultiplier;
+	config["misc"]["orbitSpeedMultiplier"] = Settings::orbitSpeedMultiplier;
+	config["misc"]["behindPlayerEnabled"] = Settings::behindPlayerEnabled;
+	config["misc"]["behindPlayerKey"] = Settings::behindPlayerKey;
+	config["misc"]["behindPlayerDistance"] = Settings::behindPlayerDistance;
+	config["misc"]["behindPlayerFOV"] = Settings::behindPlayerFOV;
+	config["misc"]["streamproofEnabled"] = Settings::streamproofEnabled;
+	std::filesystem::create_directories("configs");
+	const std::filesystem::path path{ std::filesystem::path("configs") / (name + ".json") };
+	std::ofstream oF(path);
+	if (!oF.is_open())
+		return false;
+	oF << config.dump(4);
+	return true;
+}
+
+static int GuiIndexOf(const char* const* items, int n, const std::string& s)
+{
+	for (int i = 0; i < n; ++i)
+		if (s == items[i])
+			return i;
+	return 0;
+}
+
+static const char* kGuiLockParts[]{ "Closest", "Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" };
+static const char* kGuiTrigParts[]{ "Closest", "Head", "Torso", "Left Arm", "Right Arm" };
+static const char* kGuiEspTypes[]{ "Square", "Skeleton", "Corners" };
+static const char* kGuiTracerTypes[]{ "Mouse", "Corner", "Top", "Bottom" };
+static const char* kGuiFlyModes[]{ "Default", "CFrame", "Position", "Velocity", "Hybrid", "PlatformStand", "Anchored" };
+static const char* kGuiTabs[]{ "Aiming", "Visuals", "Settings", "Misc", "Gambling", "Keybinds" };
+
+static void PullGui(SkechStyle::DemoState& st)
+{
+	st.handleInsert = false;
+	st.fillBackdrop = false;
+	st.hostExtraWindows = true;
+	st.menuVisible = Settings::mainMenuVisible;
+	st.friendsWin = Settings::friendsListVisible;
+	st.themeWin = Settings::themeWinVisible;
+	st.adminWin = Settings::adminWinVisible;
+	st.explorerWin = Settings::explorerWinVisible;
+	st.nav = GuiIndexOf(kGuiTabs, IM_ARRAYSIZE(kGuiTabs), Settings::currentTab);
+	st.aimbotEnabled = Settings::aimbotEnabled;
+	st.aimbotFOVEnabled = Settings::aimbotFOVEnabled;
+	st.aimbotPredictionEnabled = Settings::aimbotPredictionEnabled;
+	st.aimbotToggleLock = Settings::aimbotToggleLock;
+	st.aimbotFOVRadius = Settings::aimbotFOVRadius;
+	st.aimbotStrenght = Settings::aimbotStrenght;
+	st.aimbotPredictionX = Settings::aimbotPredictionX;
+	st.aimbotPredictionY = Settings::aimbotPredictionY;
+	st.aimbotLockPart = GuiIndexOf(kGuiLockParts, IM_ARRAYSIZE(kGuiLockParts), Settings::aimbotLockPart);
+	strncpy_s(st.aimbotKeyLabel, GetBindName(Settings::aimbotKey), _TRUNCATE);
+	st.aimbotFovColor = Settings::aimbotFovColor;
+	st.triggerbotEnabled = Settings::triggerbotEnabled;
+	st.triggerbotIndicateClicking = Settings::triggerbotIndicateClicking;
+	st.triggerbotDetectionRadius = Settings::triggerbotDetectionRadius;
+	st.triggerbotTriggerPart = GuiIndexOf(kGuiTrigParts, IM_ARRAYSIZE(kGuiTrigParts), Settings::triggerbotTriggerPart);
+	strncpy_s(st.triggerbotKeyLabel, GetBindName(Settings::triggerbotKey), _TRUNCATE);
+	st.silentAimEnabled = Settings::silentAimEnabled;
+	st.silentAimLockPart = GuiIndexOf(kGuiLockParts, IM_ARRAYSIZE(kGuiLockParts), Settings::silentAimLockPart);
+	st.silentAimFOVRadius = Settings::silentAimFOVRadius;
+	st.espEnabled = Settings::espEnabled;
+	st.espFilled = Settings::espFilled;
+	st.espShowName = Settings::espShowName;
+	st.espShowHealth = Settings::espShowHealth;
+	st.espShowDistance = Settings::espShowDistance;
+	st.espIgnoreDeadPlrs = Settings::espIgnoreDeadPlrs;
+	st.espType = GuiIndexOf(kGuiEspTypes, IM_ARRAYSIZE(kGuiEspTypes), Settings::espType);
+	st.espDistance = Settings::espDistance;
+	st.espColor = Settings::espColor;
+	st.tracersEnabled = Settings::tracersEnabled;
+	st.tracerType = GuiIndexOf(kGuiTracerTypes, IM_ARRAYSIZE(kGuiTracerTypes), Settings::tracerType);
+	st.tracerColor = Settings::tracerColor;
+	strncpy_s(st.configFileName, Settings::configFileName, _TRUNCATE);
+	st.autoSaveEnabled = Settings::autoSaveEnabled;
+	st.rbxWindowNeedsToBeSelected = Settings::rbxWindowNeedsToBeSelected;
+	st.mainLoopDelay = Settings::mainLoopDelay;
+	strncpy_s(st.toggleGuiKeyLabel, GetBindName(Settings::toggleGuiKey), _TRUNCATE);
+	st.tpX = Settings::othersTeleportPos.x;
+	st.tpY = Settings::othersTeleportPos.y;
+	st.tpZ = Settings::othersTeleportPos.z;
+	st.orbitDistanceMultiplier = Settings::orbitDistanceMultiplier;
+	st.orbitSpeedMultiplier = Settings::orbitSpeedMultiplier;
+	st.flyEnabled = Settings::flyEnabled;
+	strncpy_s(st.flyKeyLabel, GetBindName(Settings::flyKey), _TRUNCATE);
+	st.flyMode = GuiIndexOf(kGuiFlyModes, IM_ARRAYSIZE(kGuiFlyModes), Settings::flyMode);
+	st.flySpeed = Settings::flySpeed;
+	st.behindPlayerEnabled = Settings::behindPlayerEnabled;
+	strncpy_s(st.behindPlayerKeyLabel, GetBindName(Settings::behindPlayerKey), _TRUNCATE);
+	st.behindPlayerDistance = Settings::behindPlayerDistance;
+	st.behindPlayerFOV = Settings::behindPlayerFOV;
+	st.noclipEnabled = Settings::noclipEnabled;
+	st.streamproofEnabled = Settings::streamproofEnabled;
+	st.walkSpeedEnabled = Settings::walkSpeedEnabled;
+	st.walkSpeedSet = Settings::walkSpeedSet;
+	st.jumpPowerEnabled = Settings::jumpPowerEnabled;
+	st.jumpPowerSet = Settings::jumpPowerSet;
+	st.slot1 = Settings::gamblingSlotsNumber1;
+	st.slot2 = Settings::gamblingSlotsNumber2;
+	st.slot3 = Settings::gamblingSlotsNumber3;
+	st.keybindListVisible = Settings::keybindListVisible;
+	strncpy_s(st.themeFileName, Settings::themeFileName, _TRUNCATE);
+	st.ownerBring = Settings::ownerBringEnabled;
+	st.ownerFollow = Settings::ownerFollowEnabled;
+	st.ownerSpin = Settings::ownerSpinEnabled;
+	st.ownerFreeze = Settings::ownerFreezeEnabled;
+	st.ownerFling = Settings::ownerFlingEnabled;
+	st.ownerJumpOnly = Settings::ownerJumpOnlyEnabled;
+}
+
+static void PushGui(const SkechStyle::DemoState& st)
+{
+	Settings::mainMenuVisible = st.menuVisible;
+	Settings::friendsListVisible = st.friendsWin;
+	Settings::themeWinVisible = st.themeWin;
+	Settings::adminWinVisible = st.adminWin;
+	Settings::explorerWinVisible = st.explorerWin;
+	if (st.nav >= 0 && st.nav < IM_ARRAYSIZE(kGuiTabs))
+		Settings::currentTab = kGuiTabs[st.nav];
+	Settings::aimbotEnabled = st.aimbotEnabled;
+	Settings::aimbotFOVEnabled = st.aimbotFOVEnabled;
+	Settings::aimbotPredictionEnabled = st.aimbotPredictionEnabled;
+	Settings::aimbotToggleLock = st.aimbotToggleLock;
+	Settings::aimbotFOVRadius = st.aimbotFOVRadius;
+	Settings::aimbotStrenght = st.aimbotStrenght;
+	Settings::aimbotPredictionX = st.aimbotPredictionX;
+	Settings::aimbotPredictionY = st.aimbotPredictionY;
+	Settings::aimbotLockPart = kGuiLockParts[st.aimbotLockPart];
+	Settings::aimbotFovColor = st.aimbotFovColor;
+	Settings::triggerbotEnabled = st.triggerbotEnabled;
+	Settings::triggerbotIndicateClicking = st.triggerbotIndicateClicking;
+	Settings::triggerbotDetectionRadius = st.triggerbotDetectionRadius;
+	Settings::triggerbotTriggerPart = kGuiTrigParts[st.triggerbotTriggerPart];
+	Settings::silentAimEnabled = st.silentAimEnabled;
+	Settings::silentAimLockPart = kGuiLockParts[st.silentAimLockPart];
+	Settings::silentAimFOVRadius = st.silentAimFOVRadius;
+	Settings::espEnabled = st.espEnabled;
+	Settings::espFilled = st.espFilled;
+	Settings::espShowName = st.espShowName;
+	Settings::espShowHealth = st.espShowHealth;
+	Settings::espShowDistance = st.espShowDistance;
+	Settings::espIgnoreDeadPlrs = st.espIgnoreDeadPlrs;
+	Settings::espType = kGuiEspTypes[st.espType];
+	Settings::espDistance = st.espDistance;
+	Settings::espColor = st.espColor;
+	Settings::tracersEnabled = st.tracersEnabled;
+	Settings::tracerType = kGuiTracerTypes[st.tracerType];
+	Settings::tracerColor = st.tracerColor;
+	strncpy_s(Settings::configFileName, st.configFileName, _TRUNCATE);
+	Settings::autoSaveEnabled = st.autoSaveEnabled;
+	Settings::rbxWindowNeedsToBeSelected = st.rbxWindowNeedsToBeSelected;
+	Settings::mainLoopDelay = st.mainLoopDelay;
+	Settings::othersTeleportPos = { st.tpX, st.tpY, st.tpZ };
+	Settings::orbitDistanceMultiplier = st.orbitDistanceMultiplier;
+	Settings::orbitSpeedMultiplier = st.orbitSpeedMultiplier;
+	Settings::flyEnabled = st.flyEnabled;
+	Settings::flyMode = kGuiFlyModes[st.flyMode];
+	Settings::flySpeed = st.flySpeed;
+	Settings::behindPlayerEnabled = st.behindPlayerEnabled;
+	Settings::behindPlayerDistance = st.behindPlayerDistance;
+	Settings::behindPlayerFOV = st.behindPlayerFOV;
+	Settings::noclipEnabled = st.noclipEnabled;
+	Settings::streamproofEnabled = st.streamproofEnabled;
+	Settings::walkSpeedEnabled = st.walkSpeedEnabled;
+	Settings::walkSpeedSet = st.walkSpeedSet;
+	Settings::jumpPowerEnabled = st.jumpPowerEnabled;
+	Settings::jumpPowerSet = st.jumpPowerSet;
+	Settings::gamblingSlotsNumber1 = st.slot1;
+	Settings::gamblingSlotsNumber2 = st.slot2;
+	Settings::gamblingSlotsNumber3 = st.slot3;
+	Settings::gamblingBalance = st.gamblingBalance;
+	Settings::gamblingLastYmd = st.gamblingLastYmd;
+	Settings::keybindListVisible = st.keybindListVisible;
+	strncpy_s(Settings::themeFileName, st.themeFileName, _TRUNCATE);
+	Settings::ownerBringEnabled = st.ownerBring;
+	Settings::ownerFollowEnabled = st.ownerFollow;
+	Settings::ownerSpinEnabled = st.ownerSpin;
+	Settings::ownerFreezeEnabled = st.ownerFreeze;
+	Settings::ownerFlingEnabled = st.ownerFling;
+	Settings::ownerJumpOnlyEnabled = st.ownerJumpOnly;
+}
+
 int main()
 {
-	SetConsoleTitleA("Dk External v1.1");
+	SetConsoleTitleA("Dk External v1.2.1");
 
 	// Force latest GitHub release before anything else — old builds cannot continue.
 	{
@@ -248,9 +534,9 @@ int main()
 		if (!perfChoice.empty() && perfChoice[0] == '2')
 		{
 			Settings::highEndVisuals = false;
-			if (Settings::mainLoopDelay < 8)
-				Settings::mainLoopDelay = 8;
-			std::cout << "Low end mode enabled.\n";
+			if (Settings::mainLoopDelay < 10)
+				Settings::mainLoopDelay = 10;
+			std::cout << "Low end mode enabled (aim prioritized, menu FX off).\n";
 		}
 		else
 		{
@@ -259,8 +545,23 @@ int main()
 		}
 	}
 
-	std::cout << "\nPress ENTER to attach.";
-	std::cin.get();
+	std::cout << "Logged in as " << (KeyAuth::username.empty() ? "license user" : KeyAuth::username)
+		<< " [" << KeyAuth::role << "] (level " << KeyAuth::roleLevel << ")\n";
+
+	std::cout << "\nType logout to switch keys, or press ENTER to attach.\n> ";
+	{
+		std::string attachLine;
+		std::getline(std::cin, attachLine);
+		std::string lower = attachLine;
+		for (char& c : lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+		while (!lower.empty() && (lower.front() == ' ' || lower.front() == '\t')) lower.erase(lower.begin());
+		while (!lower.empty() && (lower.back() == ' ' || lower.back() == '\t' || lower.back() == '\r')) lower.pop_back();
+		if (lower == "logout" || lower == "log out")
+		{
+			std::cout << "Logging out and restarting...\n";
+			KeyAuth::LogoutAndRestart();
+		}
+	}
 
 	system("cls");
 	std::cout << "\n"; // keep line 0 free for live key timer
@@ -347,6 +648,21 @@ int main()
 
 	Renderer renderer;
 	renderer.Init();
+	SkechStyle::ApplyTheme();
+
+	SkechStyle::DemoState guiSt{};
+	int smiteLogoW = 0, smiteLogoH = 0;
+	ID3D11ShaderResourceView* smiteLogoImg{ renderer.LoadTexture("Assets/smitdk_logo.png", smiteLogoW, smiteLogoH) };
+	if (smiteLogoImg)
+	{
+		guiSt.logoTex = smiteLogoImg;
+		guiSt.logoSize = ImVec2((float)smiteLogoW, (float)smiteLogoH);
+	}
+	guiSt.onSaveConfig = [&guiSt]()
+	{
+		const char* name = guiSt.configFileName[0] ? guiSt.configFileName : "autosave";
+		SaveConfigFile(name);
+	};
 
 	if (Settings::highEndVisuals)
 		Snowflake::CreateSnowFlakes(snow, SNOW_LIMIT, 5.0f, 15.0f, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), Snowflake::vec3(0.0f, 0.005f), IM_COL32(255, 255, 255, 100));
@@ -410,6 +726,10 @@ int main()
 
 	gamblingIconImg = renderer.LoadTextureFromResource(IDR_CARDS_ICON, gamblingIconImgW, gamblingIconImgH);
 
+	ID3D11ShaderResourceView* adminIconImg{ nullptr };
+	int adminIconImgW, adminIconImgH;
+	adminIconImg = renderer.LoadTextureFromResource(IDR_ADMIN_ICON, adminIconImgW, adminIconImgH);
+
 	RBX::VisualEngine visualEngine{ RBX::Memory::read<void*>((void*)((uintptr_t)RBX::Memory::getRobloxBaseAddr() + Offsets::VisualEnginePointer)) };
 
 	RBX::Instance dataModel{ dataModelAddr };
@@ -441,24 +761,26 @@ int main()
 		style.Colors[ImGuiCol_TabActive] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
 		style.Colors[ImGuiCol_TabUnfocused] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
 		style.Colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.0f, 0.0f, 0.0f, 0.2f);
-		style.Colors[ImGuiCol_WindowBg] = ImVec4(0.0627451f, 0.05882353f, 0.0627451f, 0.9f);
-		style.Colors[ImGuiCol_Border] = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
-		style.Colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.05f, 0.05f, 1.00f);
-		style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.35f, 0.10f, 0.10f, 1.00f);
-		style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.50f, 0.15f, 0.15f, 1.00f);
-		style.Colors[ImGuiCol_TitleBg] = ImVec4(0.30f, 0.05f, 0.05f, 1.00f);
-		style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.30f, 0.05f, 0.05f, 1.00f);
+		// Cleaner gray window background; black cards/sidebar drawn separately
+		style.Colors[ImGuiCol_WindowBg] = ImVec4(0.14f, 0.14f, 0.15f, 0.96f);
+		style.Colors[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+		style.Colors[ImGuiCol_Border] = ImVec4(0.08f, 0.08f, 0.08f, 1.0f);
+		style.Colors[ImGuiCol_FrameBg] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
+		style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.10f, 0.10f, 1.00f);
+		style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.28f, 0.12f, 0.12f, 1.00f);
+		style.Colors[ImGuiCol_TitleBg] = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);
+		style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);
 
 		//style.Colors[ImGuiCol_CheckMark] = ImVec4(1.00f, 0.25f, 0.25f, 1.00f);
 
 		style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.85f, 0.20f, 0.20f, 1.00f);
 		style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 0.25f, 0.25f, 1.00f);
 
-		style.Colors[ImGuiCol_Button] = ImVec4(0.20f, 0.05f, 0.05f, 1.00f);
-		style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.35f, 0.10f, 0.10f, 1.00f);
-		style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.50f, 0.15f, 0.15f, 1.00f);
+		style.Colors[ImGuiCol_Button] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
+		style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.22f, 0.10f, 0.10f, 1.00f);
+		style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.35f, 0.12f, 0.12f, 1.00f);
 
-		style.Colors[ImGuiCol_PopupBg] = ImVec4(0.15f, 0.05f, 0.05f, 0.94f);
+		style.Colors[ImGuiCol_PopupBg] = ImVec4(0.10f, 0.10f, 0.11f, 0.96f);
 
 		style.WindowPadding = ImVec2(12, 12);
 		style.FramePadding = ImVec2(8, 4);
@@ -467,6 +789,21 @@ int main()
 		style.FrameRounding = 6.0f;
 		style.GrabRounding = 6.0f;
 		style.TabRounding = 6.0f;
+	}
+
+	if (!Settings::highEndVisuals)
+	{
+		ImGuiStyle& lowStyle{ ImGui::GetStyle() };
+		lowStyle.AntiAliasedLines = false;
+		lowStyle.AntiAliasedFill = false;
+		lowStyle.AntiAliasedLinesUseTex = false;
+		lowStyle.WindowRounding = 2.0f;
+		lowStyle.FrameRounding = 2.0f;
+		lowStyle.GrabRounding = 2.0f;
+		lowStyle.TabRounding = 2.0f;
+		lowStyle.ScrollbarRounding = 2.0f;
+		lowStyle.WindowPadding = ImVec2(10, 10);
+		lowStyle.ItemSpacing = ImVec2(8, 4);
 	}
 
 	RBX::Instance silent_closestPlr{ nullptr };
@@ -589,10 +926,11 @@ int main()
 		localPlayerModelInstance = RBX::Instance(RBX::Memory::read<void*>((void*)((uintptr_t)localPlayer.address + Offsets::ModelInstance)));
 		humanoid = localPlayerModelInstance.findFirstChild("Humanoid");
 		hrp = localPlayerModelInstance.findFirstChild("HumanoidRootPart");
+		TagSmiteUser(humanoid);
 
 		camera = RBX::Memory::read<void*>((void*)((uintptr_t)workspace.address + Offsets::Camera));
 
-		const ULONGLONG plrRefreshMs{ Settings::highEndVisuals ? 100ULL : 250ULL };
+		const ULONGLONG plrRefreshMs{ Settings::highEndVisuals ? 100ULL : 350ULL };
 		if (GetTickCount64() - lastPlrRefresh > plrRefreshMs)
 		{
 			playersList.clear();
@@ -609,9 +947,9 @@ int main()
 		if (Settings::imguiVisible != lastImguiVisible)
 		{
 			if (Settings::imguiVisible)
-				SetWindowLong(renderer.hwnd, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT);
+				SetWindowLong(renderer.hwnd, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW);
 			else
-				SetWindowLong(renderer.hwnd, GWL_EXSTYLE, WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_LAYERED);
+				SetWindowLong(renderer.hwnd, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT);
 			lastImguiVisible = Settings::imguiVisible;
 		}
 
@@ -621,8 +959,6 @@ int main()
 			ImVec2 mousePos{ imguiIo.MousePos };
 
 			ImDrawList* drawList{ ImGui::GetBackgroundDrawList() };
-			if (Settings::highEndVisuals)
-				drawList->AddRectFilled({ 0.f, 0.f }, { static_cast<float>(monitorWidth), static_cast<float>(monitorHeight) }, IM_COL32(0, 0, 0, 100));
 
 			POINT mouse;
 			GetCursorPos(&mouse);
@@ -633,8 +969,19 @@ int main()
 			if (Settings::highEndVisuals)
 				Snowflake::Update(snow, Snowflake::vec3(mouse.x, mouse.y), Snowflake::vec3(rc.left, rc.top));
 
-			const float barLeft{ (monitorWidth / 2) - 95.0f };
-			const float barRight{ (monitorWidth / 2) + 95.0f };
+			PullGui(guiSt);
+			if (!guiSt.logoTex && dkLogoImg)
+			{
+				guiSt.logoTex = dkLogoImg;
+				guiSt.logoSize = ImVec2((float)dkLogoImgW, (float)dkLogoImgH);
+			}
+			SkechStyle::DrawDemo(guiSt);
+			PushGui(guiSt);
+
+			if (false)
+			{
+			const float barLeft{ (monitorWidth / 2) - 130.0f };
+			const float barRight{ (monitorWidth / 2) + 130.0f };
 			drawList->AddRectFilled({ barLeft, monitorHeight - 80.0f }, { barRight, monitorHeight - 40.0f }, ImColor(0.05f, 0.05f, 0.05f, 1.0f), 6.0f);
 			if (Settings::highEndVisuals)
 				DrawGlow(drawList, { barLeft, monitorHeight - 80.0f }, { barRight, monitorHeight - 40.0f }, glowColor, 3, 0.2f, 6.0f);
@@ -643,16 +990,18 @@ int main()
 			auto drawBarBtn = [&](float x, ID3D11ShaderResourceView* icon, bool& hoveredOut, float iconHalf = 12.0f)
 			{
 				hoveredOut = ImRect({ x - 18.0f, monitorHeight - 78.0f }, { x + 18.0f, monitorHeight - 42.0f }).Contains(mousePos);
-				drawList->AddImage((void*)icon, { x - iconHalf, monitorHeight - 70.0f - (iconHalf - 10.0f) }, { x + iconHalf, monitorHeight - 50.0f + (iconHalf - 10.0f) });
+				if (icon)
+					drawList->AddImage((void*)icon, { x - iconHalf, monitorHeight - 70.0f - (iconHalf - 10.0f) }, { x + iconHalf, monitorHeight - 50.0f + (iconHalf - 10.0f) });
 				drawList->AddRect({ x - 18.0f, monitorHeight - 78.0f }, { x + 18.0f, monitorHeight - 42.0f },
 					hoveredOut ? IM_COL32(139, 50, 50, 255) : IM_COL32(50, 50, 50, 255), 6.0f);
 			};
 
-			bool menuBtnHovered{}, explorerBtnHovered{}, friendsBtnHovered{}, themeBtnHovered{};
-			drawBarBtn(midX - 67.5f, menuIconImg, menuBtnHovered, 11.0f);
-			drawBarBtn(midX - 22.5f, explorerIconImg, explorerBtnHovered, 11.0f);
-			drawBarBtn(midX + 22.5f, friendsIconImg, friendsBtnHovered, 14.0f);
-			drawBarBtn(midX + 67.5f, themeIconImg, themeBtnHovered, 11.0f);
+			bool menuBtnHovered{}, explorerBtnHovered{}, friendsBtnHovered{}, themeBtnHovered{}, adminBtnHovered{};
+			drawBarBtn(midX - 90.0f, menuIconImg, menuBtnHovered, 11.0f);
+			drawBarBtn(midX - 45.0f, explorerIconImg, explorerBtnHovered, 11.0f);
+			drawBarBtn(midX + 0.0f, friendsIconImg, friendsBtnHovered, 14.0f);
+			drawBarBtn(midX + 45.0f, themeIconImg, themeBtnHovered, 11.0f);
+			drawBarBtn(midX + 90.0f, adminIconImg, adminBtnHovered, 12.0f);
 
 			if (menuBtnHovered && imguiIo.MouseClicked[0])
 				Settings::mainMenuVisible = !Settings::mainMenuVisible;
@@ -674,7 +1023,12 @@ int main()
 			if (themeBtnHovered)
 				drawList->AddText({ mousePos.x + 15.0f, mousePos.y + 15.0f }, IM_COL32_WHITE, "Theme Changer");
 
-			if (Settings::mainMenuVisible)
+			if (adminBtnHovered && imguiIo.MouseClicked[0])
+				Settings::adminWinVisible = !Settings::adminWinVisible;
+			if (adminBtnHovered)
+				drawList->AddText({ mousePos.x + 15.0f, mousePos.y + 15.0f }, IM_COL32_WHITE, "Admin");
+
+			if (false && Settings::mainMenuVisible)
 			{
 				ImGui::SetNextWindowSize({ 1057, 720 });
 
@@ -689,38 +1043,61 @@ int main()
 				if (Settings::highEndVisuals)
 					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, ImGui::GetStyle().WindowRounding);
 
-				// tab bar
-				drawList->AddRectFilled({ p.x - 12.0f, p.y - 12.0f }, { p.x + 160.0f, p.y + 720.0f }, IM_COL32(17, 17, 17, 204), 6.0f);
+				// tab bar (black)
+				drawList->AddRectFilled({ p.x - 12.0f, p.y - 12.0f }, { p.x + 160.0f, p.y + 720.0f }, IM_COL32(0, 0, 0, 245), 6.0f);
 
 				if (dkLogoImg)
 					drawList->AddImage((void*)dkLogoImg, { winPos.x + 8.0f, winPos.y + 4.0f }, { winPos.x + 152.0f, winPos.y + 140.0f });
 
-				if (DrawButtonWithImage(aimingIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 155.0f }, "Aiming", IM_COL32(30, 30, 30, 255), IM_COL32(70, 20, 20, 255), IM_COL32(100, 25, 25, 255), 6.0f))
+				{
+					// Clip role/user text so long license keys don't spill into the content panel
+					drawList->PushClipRect({ winPos.x + 8.0f, winPos.y + 120.0f }, { winPos.x + 156.0f, winPos.y + 158.0f }, true);
+					const std::string roleLabel{ "[" + KeyAuth::role + "] lv" + std::to_string(KeyAuth::roleLevel) };
+					const ImU32 roleCol{ KeyAuth::IsOwner() ? IM_COL32(255, 200, 60, 255)
+						: (KeyAuth::IsCoOwner() ? IM_COL32(180, 140, 255, 255)
+						: (KeyAuth::IsStaff() ? IM_COL32(120, 200, 255, 255) : IM_COL32(180, 180, 180, 255))) };
+					drawList->AddText({ winPos.x + 14.0f, winPos.y + 124.0f }, roleCol, roleLabel.c_str());
+					if (!KeyAuth::username.empty())
+					{
+						std::string shown{ KeyAuth::username };
+						// Don't dump full license-looking keys into the sidebar
+						if (shown.size() > 18)
+							shown = shown.substr(0, 16) + "..";
+						drawList->AddText({ winPos.x + 14.0f, winPos.y + 140.0f }, IM_COL32(120, 120, 120, 255), shown.c_str());
+					}
+					drawList->PopClipRect();
+				}
+
+				const ImU32 navIdle{ IM_COL32(0, 0, 0, 255) };
+				const ImU32 navHover{ IM_COL32(50, 12, 12, 255) };
+				const ImU32 navActive{ IM_COL32(90, 20, 20, 255) };
+
+				if (DrawButtonWithImage(aimingIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 155.0f }, "Aiming", navIdle, navHover, navActive, 6.0f))
 				{
 					Settings::currentTab = "Aiming";
 				}
 
-				if (DrawButtonWithImage(visualsIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 215.0f }, "Visuals", IM_COL32(30, 30, 30, 255), IM_COL32(70, 20, 20, 255), IM_COL32(100, 25, 25, 255), 6.0f))
+				if (DrawButtonWithImage(visualsIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 215.0f }, "Visuals", navIdle, navHover, navActive, 6.0f))
 				{
 					Settings::currentTab = "Visuals";
 				}
 
-				if (DrawButtonWithImage(settingsIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 275.0f }, "Settings", IM_COL32(30, 30, 30, 255), IM_COL32(70, 20, 20, 255), IM_COL32(100, 25, 25, 255), 6.0f))
+				if (DrawButtonWithImage(settingsIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 275.0f }, "Settings", navIdle, navHover, navActive, 6.0f))
 				{
 					Settings::currentTab = "Settings";
 				}
 
-				if (DrawButtonWithImage(miscIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 335.0f }, "Misc", IM_COL32(30, 30, 30, 255), IM_COL32(70, 20, 20, 255), IM_COL32(100, 25, 25, 255), 6.0f))
+				if (DrawButtonWithImage(miscIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 335.0f }, "Misc", navIdle, navHover, navActive, 6.0f))
 				{
 					Settings::currentTab = "Misc";
 				}
 
-				if (DrawButtonWithImage(gamblingIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 395.0f }, "Gambling", IM_COL32(30, 30, 30, 255), IM_COL32(70, 20, 20, 255), IM_COL32(100, 25, 25, 255), 6.0f))
+				if (DrawButtonWithImage(gamblingIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 395.0f }, "Gambling", navIdle, navHover, navActive, 6.0f))
 				{
 					Settings::currentTab = "Gambling";
 				}
 
-				if (DrawButtonWithImage(keybindsIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 455.0f }, "Keybinds", IM_COL32(30, 30, 30, 255), IM_COL32(70, 20, 20, 255), IM_COL32(100, 25, 25, 255), 6.0f))
+				if (DrawButtonWithImage(keybindsIconImg, { 30.0f, 30.0f }, { 120.0f, 50.0f }, { 26.0f, 455.0f }, "Keybinds", navIdle, navHover, navActive, 6.0f))
 				{
 					Settings::currentTab = "Keybinds";
 					Settings::keybindListVisible = !Settings::keybindListVisible;
@@ -1077,8 +1454,20 @@ int main()
 							Settings::flyKey = config["misc"]["flyKey"].get<int>();
 							if (config["misc"].contains("flySpeed"))
 								Settings::flySpeed = config["misc"]["flySpeed"].get<float>();
+							if (config["misc"].contains("flyMode"))
+								Settings::flyMode = config["misc"]["flyMode"].get<std::string>();
+							if (config["misc"].contains("walkSpeedEnabled"))
+								Settings::walkSpeedEnabled = config["misc"]["walkSpeedEnabled"].get<bool>();
+							if (config["misc"].contains("walkSpeedSet"))
+								Settings::walkSpeedSet = config["misc"]["walkSpeedSet"].get<int>();
+							if (config["misc"].contains("jumpPowerEnabled"))
+								Settings::jumpPowerEnabled = config["misc"]["jumpPowerEnabled"].get<bool>();
+							if (config["misc"].contains("jumpPowerSet"))
+								Settings::jumpPowerSet = config["misc"]["jumpPowerSet"].get<int>();
 							if (config["misc"].contains("orbitDistanceMultiplier"))
 								Settings::orbitDistanceMultiplier = config["misc"]["orbitDistanceMultiplier"].get<float>();
+							if (config["misc"].contains("orbitSpeedMultiplier"))
+								Settings::orbitSpeedMultiplier = config["misc"]["orbitSpeedMultiplier"].get<float>();
 							if (config["misc"].contains("behindPlayerEnabled"))
 								Settings::behindPlayerEnabled = config["misc"]["behindPlayerEnabled"].get<bool>();
 							if (config["misc"].contains("behindPlayerKey"))
@@ -1147,7 +1536,13 @@ int main()
 							config["misc"]["flyEnabled"] = Settings::flyEnabled;
 							config["misc"]["flyKey"] = Settings::flyKey;
 							config["misc"]["flySpeed"] = Settings::flySpeed;
+							config["misc"]["flyMode"] = Settings::flyMode;
+							config["misc"]["walkSpeedEnabled"] = Settings::walkSpeedEnabled;
+							config["misc"]["walkSpeedSet"] = Settings::walkSpeedSet;
+							config["misc"]["jumpPowerEnabled"] = Settings::jumpPowerEnabled;
+							config["misc"]["jumpPowerSet"] = Settings::jumpPowerSet;
 							config["misc"]["orbitDistanceMultiplier"] = Settings::orbitDistanceMultiplier;
+							config["misc"]["orbitSpeedMultiplier"] = Settings::orbitSpeedMultiplier;
 							config["misc"]["behindPlayerEnabled"] = Settings::behindPlayerEnabled;
 							config["misc"]["behindPlayerKey"] = Settings::behindPlayerKey;
 							config["misc"]["behindPlayerDistance"] = Settings::behindPlayerDistance;
@@ -1260,6 +1655,7 @@ int main()
 					{
 						RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), humanoid.address);
 					}
+
 					ImGui::EndGroup();
 
 					ImGui::SetCursorPos({ col2X + pad, 15.0f });
@@ -1301,6 +1697,8 @@ int main()
 					}
 					ImGui::Text("Orbit distance");
 					ImGui::SliderFloat("##Orbit distance", &Settings::orbitDistanceMultiplier, 0.25f, 5.0f, "%.2fx");
+					ImGui::Text("Orbit speed");
+					ImGui::SliderFloat("##Orbit speed", &Settings::orbitSpeedMultiplier, 0.1f, 5.0f, "%.2fx");
 					ImGui::EndGroup();
 
 					ImGui::SetCursorPos({ col3X + pad, 15.0f });
@@ -1308,6 +1706,20 @@ int main()
 					ImGui::Text("[Movement / Stream]");
 					ImGui::Checkbox("Toggle fly", &Settings::flyEnabled);
 					ImGui::Hotkey(&Settings::flyKey, { 100, 20 });
+					ImGui::Text("Fly mode");
+					if (ImGui::BeginCombo("##Fly mode", Settings::flyMode.c_str()))
+					{
+						static const char* flyModes[]{ "Default", "CFrame", "Position", "Velocity", "Hybrid", "PlatformStand", "Anchored" };
+						for (const char* mode : flyModes)
+						{
+							const bool selected{ Settings::flyMode == mode };
+							if (ImGui::Selectable(mode, selected))
+								Settings::flyMode = mode;
+							if (selected)
+								ImGui::SetItemDefaultFocus();
+						}
+						ImGui::EndCombo();
+					}
 					ImGui::Text("Fly speed");
 					ImGui::SliderFloat("##Fly speed", &Settings::flySpeed, 1.0f, 200.0f, "%.1f");
 					ImGui::Checkbox("Behind player", &Settings::behindPlayerEnabled);
@@ -1332,20 +1744,15 @@ int main()
 					ImGui::SetCursorPos({ col1X + pad, humY + 15.0f });
 					ImGui::BeginGroup();
 					ImGui::Text("[Humanoid]");
+					ImGui::Checkbox("WalkSpeed active", &Settings::walkSpeedEnabled);
 					ImGui::Text("WalkSpeed");
 					ImGui::SetNextItemWidth(col3X + colW - col1X - pad * 2.0f);
 					ImGui::SliderInt("##WalkSpeed", &Settings::walkSpeedSet, 0, 1000);
-					if (ImGui::Button("Set Walk Speed", { 180.0f, 0.0f }))
-					{
-						RBX::setWalkSpeed(humanoid, Settings::walkSpeedSet);
-					}
+					ImGui::Checkbox("JumpPower active", &Settings::jumpPowerEnabled);
 					ImGui::Text("JumpPower");
 					ImGui::SetNextItemWidth(col3X + colW - col1X - pad * 2.0f);
 					ImGui::SliderInt("##JumpPower", &Settings::jumpPowerSet, 0, 1000);
-					if (ImGui::Button("Set Jump Power", { 180.0f, 0.0f }))
-					{
-						RBX::setJumpPower(humanoid, Settings::jumpPowerSet);
-					}
+					ImGui::TextDisabled("Toggles keep applying while on. Turn off to restore.");
 					ImGui::EndGroup();
 
 					ImGui::PopItemWidth();
@@ -1390,6 +1797,7 @@ int main()
 				}
 
 				ImGui::End();
+			}
 			}
 
 			if (Settings::espPreviewOpened)
@@ -1577,8 +1985,87 @@ int main()
 						style.WindowRounding = 6.0f;
 						style.FrameRounding = 6.0f;
 						style.GrabRounding = 6.0f;
-						featureBGColor = { 17, 17, 17, 204 };
+						featureBGColor = { 0, 0, 0, 230 };
 						glowColor = { 1.0f, 0.0f, 0.0f, 0.8f };
+					}
+				}
+
+				ImGui::End();
+			}
+
+			if (Settings::adminWinVisible)
+			{
+				ImGui::SetNextWindowSize({ 360, 420 });
+				ImGui::Begin("DK - Admin", (bool*)0, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
+
+				ImVec2 winPos{ ImGui::GetWindowPos() };
+				ImVec2 winSize{ ImGui::GetWindowSize() };
+				if (Settings::highEndVisuals)
+					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
+
+				ImGui::Text("Role: %s", KeyAuth::role.c_str());
+				ImGui::Text("Level: %d", KeyAuth::roleLevel);
+				if (!KeyAuth::username.empty())
+					ImGui::Text("User: %s", KeyAuth::username.c_str());
+
+				ImGui::Text("Subscriptions:");
+				if (KeyAuth::subscriptions.empty())
+					ImGui::TextDisabled("(none parsed — check KeyAuth subscription name)");
+				else
+				{
+					for (const auto& sub : KeyAuth::subscriptions)
+						ImGui::BulletText("%s  (rank %d)", sub.c_str(), KeyAuth::RankRole(sub));
+				}
+
+				ImGui::Separator();
+				ImGui::TextWrapped("KeyAuth subscription names: Owner (5), CoOwner (4), Staff (3), default (1). Set the subscription name on the license in the KeyAuth panel.");
+
+				if (!KeyAuth::IsStaff())
+				{
+					ImGui::Spacing();
+					ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Staff+ required for admin tools.");
+					ImGui::TextWrapped("If your license should be Owner, the subscription name must contain Owner (not only a custom note).");
+				}
+				else
+				{
+					ImGui::Spacing();
+					ImGui::Text("[Session]");
+					if (ImGui::Button("Logout key (restart)", { -1, 0 }))
+						KeyAuth::LogoutAndRestart();
+					ImGui::TextWrapped("Clears saved license and restarts so you can enter another key.");
+
+					if (KeyAuth::IsCoOwner())
+					{
+						ImGui::Separator();
+						ImGui::Text("[Trolls] CoOwner+");
+						ImGui::Text("Target player");
+						const char* playerPreview{ Settings::othersRobloxPlr[0] ? Settings::othersRobloxPlr : "Select player" };
+						if (ImGui::BeginCombo("##Admin player", playerPreview))
+						{
+							for (RBX::Instance plr : players.getChildren())
+							{
+								const std::string name{ plr.name() };
+								if (name.empty())
+									continue;
+								const bool selected{ name == Settings::othersRobloxPlr };
+								if (ImGui::Selectable(name.c_str(), selected))
+									strncpy_s(Settings::othersRobloxPlr, name.c_str(), _TRUNCATE);
+								if (selected)
+									ImGui::SetItemDefaultFocus();
+							}
+							ImGui::EndCombo();
+						}
+						ImGui::Checkbox("Bring to me", &Settings::ownerBringEnabled);
+						ImGui::Checkbox("Follow me", &Settings::ownerFollowEnabled);
+						ImGui::Checkbox("Spin", &Settings::ownerSpinEnabled);
+						ImGui::Checkbox("Freeze", &Settings::ownerFreezeEnabled);
+						ImGui::Checkbox("Fling", &Settings::ownerFlingEnabled);
+						ImGui::Checkbox("Jump only", &Settings::ownerJumpOnlyEnabled);
+					}
+					else
+					{
+						ImGui::Spacing();
+						ImGui::TextDisabled("Troll tools need CoOwner or Owner.");
 					}
 				}
 
@@ -1734,49 +2221,47 @@ int main()
 							lockPartPos.z += lockPartVelocity.z * Settings::aimbotPredictionX * predScale;
 						}
 
-						RBX::Vector2 screenPos{ visualEngine.worldToScreen(lockPartPos) };
+						// trackBehind=true: keep turning camera when target goes behind you
+						RBX::Vector2 screenPos{ visualEngine.worldToScreen(lockPartPos, true) };
 
-						if (screenPos.x >= 0.0f && screenPos.y >= 0.0f && screenPos.x <= monitorWidth && screenPos.y <= monitorHeight)
+						const float errX{ screenPos.x - static_cast<float>(mousePos.x) };
+						const float errY{ screenPos.y - static_cast<float>(mousePos.y) };
+						const float dist{ sqrtf(errX * errX + errY * errY) };
+						constexpr float deadzone{ 2.5f };
+
+						if (dist <= deadzone)
 						{
-							const float errX{ screenPos.x - static_cast<float>(mousePos.x) };
-							const float errY{ screenPos.y - static_cast<float>(mousePos.y) };
-							const float dist{ sqrtf(errX * errX + errY * errY) };
-							constexpr float deadzone{ 2.5f };
+							prevErrX = 0.0f;
+							prevErrY = 0.0f;
+						}
+						else
+						{
+							const float strength{ std::clamp(Settings::aimbotStrenght, 0.05f, 1.0f) };
+							// Higher strength = lower divisor = much faster snap (still rate-limited).
+							const float divisor{ 9.0f - strength * 7.2f }; // ~8.6 .. 1.8
+							const float maxStep{ 10.0f + strength * 38.0f }; // ~12 .. 48
 
-							if (dist <= deadzone)
-							{
-								prevErrX = 0.0f;
-								prevErrY = 0.0f;
-							}
-							else
-							{
-								const float strength{ std::clamp(Settings::aimbotStrenght, 0.05f, 1.0f) };
-								// Higher strength = lower divisor = much faster snap (still rate-limited).
-								const float divisor{ 9.0f - strength * 7.2f }; // ~8.6 .. 1.8
-								const float maxStep{ 10.0f + strength * 38.0f }; // ~12 .. 48
+							float moveX{ errX / divisor };
+							float moveY{ errY / divisor };
 
-								float moveX{ errX / divisor };
-								float moveY{ errY / divisor };
+							// Soft-cap only the extreme far swings so we stay fast without flying.
+							const float softCap{ maxStep * (0.55f + 0.45f * tanhf(dist / 180.0f)) };
+							moveX = std::clamp(moveX, -softCap, softCap);
+							moveY = std::clamp(moveY, -softCap, softCap);
 
-								// Soft-cap only the extreme far swings so we stay fast without flying.
-								const float softCap{ maxStep * (0.55f + 0.45f * tanhf(dist / 180.0f)) };
-								moveX = std::clamp(moveX, -softCap, softCap);
-								moveY = std::clamp(moveY, -softCap, softCap);
+							// If we crossed the target, brake hard (keeps the no-oscillation fix).
+							if (prevErrX != 0.0f && errX * prevErrX < 0.0f)
+								moveX *= 0.15f;
+							if (prevErrY != 0.0f && errY * prevErrY < 0.0f)
+								moveY *= 0.15f;
 
-								// If we crossed the target, brake hard (keeps the no-oscillation fix).
-								if (prevErrX != 0.0f && errX * prevErrX < 0.0f)
-									moveX *= 0.15f;
-								if (prevErrY != 0.0f && errY * prevErrY < 0.0f)
-									moveY *= 0.15f;
+							if (fabsf(moveX) > fabsf(errX)) moveX = errX;
+							if (fabsf(moveY) > fabsf(errY)) moveY = errY;
 
-								if (fabsf(moveX) > fabsf(errX)) moveX = errX;
-								if (fabsf(moveY) > fabsf(errY)) moveY = errY;
+							prevErrX = errX;
+							prevErrY = errY;
 
-								prevErrX = errX;
-								prevErrY = errY;
-
-								MoveMouse(moveX, moveY);
-							}
+							MoveMouse(moveX, moveY);
 						}
 					}
 				}
@@ -1840,7 +2325,12 @@ int main()
 			}
 		}
 
-		if (Settings::espEnabled && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
+		// Low-end: draw ESP every other frame (aim stays every tick).
+		static unsigned espFrame{ 0 };
+		++espFrame;
+		const bool drawEspThisFrame{ Settings::highEndVisuals || (espFrame % 2u) == 0u };
+
+		if (Settings::espEnabled && drawEspThisFrame && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
 		{
 			for (RBX::Instance plr : playersList)
 			{
@@ -1976,7 +2466,26 @@ int main()
 			}
 		}
 
-		if (Settings::tracersEnabled && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
+		{
+			ImDrawList* boltList{ ImGui::GetBackgroundDrawList() };
+			for (RBX::Instance plr : playersList)
+			{
+				if (plr.name() == localPlayer.name())
+					continue;
+				RBX::Instance plrHum{ plr.findFirstChild("Humanoid") };
+				if (!IsSmiteUser(plrHum))
+					continue;
+				RBX::Instance head{ plr.findFirstChild("Head") };
+				if (!head.address)
+					continue;
+				RBX::Vector2 sp{ visualEngine.worldToScreen(head.getPosition()) };
+				if (sp.x == 0 && sp.y == 0)
+					continue;
+				DrawLightningBolt(boltList, ImVec2(sp.x, sp.y));
+			}
+		}
+
+		if (Settings::tracersEnabled && Settings::highEndVisuals && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
 		{
 			for (RBX::Instance plr : playersList)
 			{
@@ -2026,23 +2535,143 @@ int main()
 			}
 		}
 
-		if (Settings::flyEnabled)
+		// Admin troll loop (CoOwner+), selected player in Misc/Admin
+		if (KeyAuth::IsCoOwner() && Settings::othersRobloxPlr[0] != '\0' && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
+		{
+			RBX::Instance targetPlr{ players.findFirstChild(Settings::othersRobloxPlr) };
+			RBX::Instance targetMi{ targetPlr.getModelInstance() };
+			RBX::Instance targetHrp{ targetMi.findFirstChild("HumanoidRootPart") };
+			RBX::Instance targetHum{ targetMi.findFirstChild("Humanoid") };
+			void* targetPrim{ targetHrp.address ? targetHrp.getPrimitive() : nullptr };
+
+			if (targetPrim)
+			{
+				static float ownerSpinAngle{ 0.0f };
+
+				if (Settings::ownerBringEnabled)
+				{
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), hrp.getPosition());
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+				}
+
+				if (Settings::ownerFollowEnabled && !Settings::ownerBringEnabled)
+				{
+					RBX::Vector3 me{ hrp.getPosition() };
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), { me.x + 3.0f, me.y, me.z });
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+				}
+
+				if (Settings::ownerFreezeEnabled)
+				{
+					RBX::Vector3 frozen{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), frozen);
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+					if (targetHum.address)
+					{
+						RBX::setWalkSpeed(targetHum, 0.0f);
+						RBX::setJumpPower(targetHum, 0.0f);
+					}
+				}
+
+				if (Settings::ownerJumpOnlyEnabled && targetHum.address)
+				{
+					RBX::setWalkSpeed(targetHum, 0.0f);
+					RBX::setJumpPower(targetHum, 50.0f);
+				}
+
+				if (Settings::ownerFlingEnabled)
+				{
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 120.0f, 180.0f, 120.0f });
+				}
+
+				if (Settings::ownerSpinEnabled)
+				{
+					ownerSpinAngle += 0.45f;
+					RBX::Vector3 pos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
+					pos.x += cosf(ownerSpinAngle) * 1.5f;
+					pos.z += sinf(ownerSpinAngle) * 1.5f;
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), pos);
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+				}
+			}
+		}
+
+		// Walk / Jump continuous toggles
+		{
+			static bool walkWasOn{ false };
+			static bool jumpWasOn{ false };
+			static float savedWalk{ 16.0f };
+			static float savedJump{ 50.0f };
+
+			if (humanoid.address)
+			{
+				if (Settings::walkSpeedEnabled)
+				{
+					if (!walkWasOn)
+						savedWalk = RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::WalkSpeed));
+					RBX::setWalkSpeed(humanoid, static_cast<float>(Settings::walkSpeedSet));
+					walkWasOn = true;
+				}
+				else if (walkWasOn)
+				{
+					RBX::setWalkSpeed(humanoid, savedWalk);
+					walkWasOn = false;
+				}
+
+				if (Settings::jumpPowerEnabled)
+				{
+					if (!jumpWasOn)
+						savedJump = RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::JumpPower));
+					RBX::setJumpPower(humanoid, static_cast<float>(Settings::jumpPowerSet));
+					jumpWasOn = true;
+				}
+				else if (jumpWasOn)
+				{
+					RBX::setJumpPower(humanoid, savedJump);
+					jumpWasOn = false;
+				}
+			}
+		}
+
 		{
 			static bool flyPrevDown{ false };
-			const bool flyDown{ IsBindDown(Settings::flyKey) };
-			if (flyDown && !flyPrevDown)
-				Settings::flyKeyToggled = !Settings::flyKeyToggled;
-			flyPrevDown = flyDown;
+			static bool flyWasActive{ false };
+			static bool flyHadPlatformStand{ false };
+			static uint8_t flySavedPrimFlags{ 0 };
+			static std::string flyActiveMode{};
 
-			if (Settings::flyKeyToggled)
+			if (Settings::flyEnabled)
 			{
-				void* primitive{ hrp.getPrimitive() };
+				const bool flyDown{ IsBindDown(Settings::flyKey) };
+				if (flyDown && !flyPrevDown)
+					Settings::flyKeyToggled = !Settings::flyKeyToggled;
+				flyPrevDown = flyDown;
+			}
+			else
+			{
+				Settings::flyKeyToggled = false;
+				flyPrevDown = false;
+			}
+
+			const bool flyActive{ Settings::flyEnabled && Settings::flyKeyToggled };
+			void* primitive{ hrp.address ? hrp.getPrimitive() : nullptr };
+
+			if (flyActive && primitive)
+			{
+				if (!flyWasActive)
+				{
+					flyActiveMode = Settings::flyMode;
+					if (humanoid.address)
+						flyHadPlatformStand = RBX::Memory::read<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand));
+					flySavedPrimFlags = RBX::Memory::read<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored));
+				}
 
 				RBX::Matrix3 camRot{ RBX::Memory::read<RBX::Matrix3>((void*)((uintptr_t)camera.address + Offsets::CameraRotation)) };
 				RBX::Vector3 pos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position)) };
 
 				RBX::Vector3 lookVector{ -camRot.data[2], -camRot.data[5], -camRot.data[8] };
 				RBX::Vector3 rightVector{ camRot.data[0], camRot.data[3], camRot.data[6] };
+				RBX::Vector3 upVector{ camRot.data[1], camRot.data[4], camRot.data[7] };
 
 				RBX::Vector3 moveDirection{};
 
@@ -2071,28 +2700,89 @@ int main()
 					moveDirection.z += rightVector.z;
 				}
 				if (GetAsyncKeyState(VK_SPACE) & 0x8000)
-				{
 					moveDirection.y += 1.0f;
-				}
 				if (GetAsyncKeyState(VK_LCONTROL) & 0x8000)
-				{
 					moveDirection.y -= 1.0f;
-				}
 
 				const float len{ std::sqrt(moveDirection.x * moveDirection.x + moveDirection.y * moveDirection.y + moveDirection.z * moveDirection.z) };
+				RBX::Vector3 dir{};
 				if (len > 0.0001f)
 				{
-					const float speed{ Settings::flySpeed * 0.05f };
-					moveDirection.x = (moveDirection.x / len) * speed;
-					moveDirection.y = (moveDirection.y / len) * speed;
-					moveDirection.z = (moveDirection.z / len) * speed;
-
-					RBX::Vector3 newPos{ pos.x + moveDirection.x, pos.y + moveDirection.y, pos.z + moveDirection.z };
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
+					dir.x = moveDirection.x / len;
+					dir.y = moveDirection.y / len;
+					dir.z = moveDirection.z / len;
 				}
+
+				const std::string& mode{ Settings::flyMode };
+				const bool isDefault{ mode == "Default" };
+				const bool isCFrame{ mode == "CFrame" };
+				const bool usePlatformStand{ mode == "PlatformStand" || isDefault || isCFrame };
+				const bool useAnchored{ mode == "Anchored" };
+				const bool usePosition{ mode == "Position" || mode == "Hybrid" || usePlatformStand || useAnchored || isDefault || isCFrame };
+				const bool useVelocity{ mode == "Velocity" || mode == "Hybrid" || isDefault };
+
+				if (usePlatformStand && humanoid.address)
+					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), true);
+
+				if (useAnchored)
+				{
+					uint8_t flags{ RBX::Memory::read<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored)) };
+					flags = static_cast<uint8_t>(flags | Offsets::AnchoredMask);
+					RBX::Memory::write<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored), flags);
+				}
+
+				const float step{ Settings::flySpeed * (isDefault ? 0.08f : 0.05f) };
+				const float velSpeed{ Settings::flySpeed * (isDefault ? 1.35f : 1.0f) };
+
+				RBX::Vector3 newPos{ pos };
+				if (len > 0.0001f && usePosition)
+				{
+					newPos.x = pos.x + dir.x * step;
+					newPos.y = pos.y + dir.y * step;
+					newPos.z = pos.z + dir.z * step;
+				}
+
+				if (isCFrame)
+				{
+					// Write look-aligned rotation + position (CFrame layout: Matrix3 @ Rotation, Vector3 @ Position)
+					RBX::Matrix3 bodyRot{};
+					// Columns: right, up, -look (Roblox camera uses -Z look)
+					bodyRot.data[0] = rightVector.x; bodyRot.data[1] = upVector.x; bodyRot.data[2] = -lookVector.x;
+					bodyRot.data[3] = rightVector.y; bodyRot.data[4] = upVector.y; bodyRot.data[5] = -lookVector.y;
+					bodyRot.data[6] = rightVector.z; bodyRot.data[7] = upVector.z; bodyRot.data[8] = -lookVector.z;
+					RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)primitive + Offsets::CFrame), bodyRot);
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+				}
+				else
+				{
+					if (len > 0.0001f && usePosition)
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
+
+					if (len > 0.0001f && useVelocity)
+					{
+						RBX::Memory::write<RBX::Vector3>(
+							(void*)((uintptr_t)primitive + Offsets::Velocity),
+							{ dir.x * velSpeed, dir.y * velSpeed, dir.z * velSpeed });
+					}
+					else
+					{
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+					}
+				}
+			}
+			else if (flyWasActive && primitive)
+			{
+				if ((flyActiveMode == "PlatformStand" || flyActiveMode == "Default" || flyActiveMode == "CFrame") && humanoid.address)
+					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), flyHadPlatformStand);
+
+				if (flyActiveMode == "Anchored")
+					RBX::Memory::write<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored), flySavedPrimFlags);
 
 				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
 			}
+
+			flyWasActive = flyActive;
 		}
 
 		if (Settings::noclipEnabled)
@@ -2206,7 +2896,7 @@ int main()
 
 			void* primitive{ hrp.getPrimitive() };
 
-			rot += 0.016f * rotspeed;
+			rot += 0.016f * rotspeed * Settings::orbitSpeedMultiplier;
 
 			const float orbitR{ static_cast<float>(radius) * Settings::orbitDistanceMultiplier };
 			double offsetAngle{ rot };

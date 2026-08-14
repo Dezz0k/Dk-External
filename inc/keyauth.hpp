@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Windows.h>
+#include <shellapi.h>
 #include <wininet.h>
 #include <iostream>
 #include <fstream>
@@ -13,9 +14,11 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <vector>
 #include "dependencies/json.hpp"
 
 #pragma comment(lib, "wininet.lib")
+#pragma comment(lib, "shell32.lib")
 
 using json = nlohmann::json;
 
@@ -35,8 +38,134 @@ namespace KeyAuth
 	inline std::string lastMessage;
 	inline bool authenticated = false;
 	inline long long expiryUnix = 0;
+	inline std::string username;
+	inline std::string role = "default"; // Owner / CoOwner / Staff / default
+	inline int roleLevel = 1;
+	inline std::vector<std::string> subscriptions;
 	inline std::atomic<bool> countdownRunning{ false };
 	inline std::thread countdownThread;
+
+	inline std::string NormalizeRole(std::string s)
+	{
+		for (char& c : s)
+			c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+		// strip spaces/hyphens
+		std::string out;
+		out.reserve(s.size());
+		for (char c : s)
+		{
+			if (c != ' ' && c != '-' && c != '_')
+				out.push_back(c);
+		}
+		return out;
+	}
+
+	// Matches KeyAuth levels: Owner=5, CoOwner=4, Staff=3, default=1
+	inline int RankRole(const std::string& s)
+	{
+		const std::string l = NormalizeRole(s);
+		if (l.empty() || l == "default" || l == "user" || l == "member")
+			return 1;
+		// CoOwner before Owner (substring overlap)
+		if (l.find("coowner") != std::string::npos || l == "coown" || l == "co")
+			return 4;
+		if (l.find("owner") != std::string::npos || l.find("admin") != std::string::npos || l == "5")
+			return 5;
+		if (l.find("staff") != std::string::npos || l.find("mod") != std::string::npos || l == "3")
+			return 3;
+		if (l.find("vip") != std::string::npos || l.find("premium") != std::string::npos || l == "2")
+			return 2;
+		// Exact legacy names
+		if (l == "owner" || l == "admin") return 5;
+		if (l == "coowner") return 4;
+		if (l == "staff" || l == "moderator") return 3;
+		return 1;
+	}
+
+	inline bool IsOwner() { return roleLevel >= 5; }
+	inline bool IsCoOwner() { return roleLevel >= 4; }
+	inline bool IsStaff() { return roleLevel >= 3; }
+
+	inline std::string SubNameFromJson(const json& sub)
+	{
+		// KeyAuth uses "subscription"; some panels use "name"
+		if (sub.contains("subscription") && sub["subscription"].is_string())
+			return sub["subscription"].get<std::string>();
+		if (sub.contains("name") && sub["name"].is_string())
+			return sub["name"].get<std::string>();
+		if (sub.is_string())
+			return sub.get<std::string>();
+		return {};
+	}
+
+	inline void ApplyBestRole()
+	{
+		int best = 0;
+		std::string bestName = "default";
+		for (const auto& sub : subscriptions)
+		{
+			const int r = RankRole(sub);
+			if (r > best)
+			{
+				best = r;
+				bestName = sub;
+			}
+		}
+		role = bestName;
+		roleLevel = best > 0 ? best : 1;
+	}
+
+	inline void ParseUserInfo(const json& j)
+	{
+		username.clear();
+		subscriptions.clear();
+		role = "default";
+		roleLevel = 1;
+		expiryUnix = 0;
+
+		if (!j.contains("info") || !j["info"].is_object())
+			return;
+
+		const json& info = j["info"];
+		username = info.value("username", "");
+
+		if (info.contains("subscriptions") && info["subscriptions"].is_array())
+		{
+			for (const auto& sub : info["subscriptions"])
+			{
+				const std::string name = SubNameFromJson(sub);
+				if (!name.empty())
+					subscriptions.push_back(name);
+
+				long long exp = 0;
+				try
+				{
+					if (sub.is_object() && sub.contains("expiry"))
+					{
+						if (sub["expiry"].is_string())
+							exp = std::stoll(sub["expiry"].get<std::string>());
+						else if (sub["expiry"].is_number_integer())
+							exp = sub["expiry"].get<long long>();
+						else if (sub["expiry"].is_number_unsigned())
+							exp = static_cast<long long>(sub["expiry"].get<unsigned long long>());
+					}
+				}
+				catch (...) {}
+
+				if (exp > expiryUnix)
+					expiryUnix = exp;
+			}
+		}
+
+		// Some KeyAuth setups put role on the user / license itself
+		if (info.contains("subscriptions") == false || subscriptions.empty())
+		{
+			if (info.contains("subscription") && info["subscription"].is_string())
+				subscriptions.push_back(info["subscription"].get<std::string>());
+		}
+
+		ApplyBestRole();
+	}
 
 	inline std::string UrlEncode(const std::string& value)
 	{
@@ -228,44 +357,6 @@ namespace KeyAuth
 		}
 	}
 
-	inline long long ParseExpiryUnix(const json& j)
-	{
-		long long best = 0;
-
-		if (!j.contains("info") || !j["info"].is_object())
-			return 0;
-
-		const json& info = j["info"];
-		if (!info.contains("subscriptions") || !info["subscriptions"].is_array())
-			return 0;
-
-		for (const auto& sub : info["subscriptions"])
-		{
-			if (!sub.contains("expiry"))
-				continue;
-
-			long long exp = 0;
-			try
-			{
-				if (sub["expiry"].is_string())
-					exp = std::stoll(sub["expiry"].get<std::string>());
-				else if (sub["expiry"].is_number_integer())
-					exp = sub["expiry"].get<long long>();
-				else if (sub["expiry"].is_number_unsigned())
-					exp = static_cast<long long>(sub["expiry"].get<unsigned long long>());
-			}
-			catch (...)
-			{
-				continue;
-			}
-
-			if (exp > best)
-				best = exp;
-		}
-
-		return best;
-	}
-
 	inline std::string FormatRemaining(long long totalSeconds)
 	{
 		if (totalSeconds <= 0)
@@ -396,7 +487,7 @@ namespace KeyAuth
 			authenticated = j.value("success", false);
 			lastMessage = j.value("message", "Unknown error");
 			if (authenticated)
-				expiryUnix = ParseExpiryUnix(j);
+				ParseUserInfo(j);
 			return authenticated;
 		}
 		catch (...)
@@ -443,6 +534,19 @@ namespace KeyAuth
 	{
 		std::error_code ec;
 		std::filesystem::remove(KeyAuthConfig::LICENSE_FILE, ec);
+	}
+
+	// Clears saved key, closes, and relaunches so the license prompt returns.
+	inline void LogoutAndRestart()
+	{
+		ClearSavedKey();
+		StopLiveCountdown();
+
+		char path[MAX_PATH]{};
+		GetModuleFileNameA(nullptr, path, MAX_PATH);
+
+		ShellExecuteA(nullptr, "open", path, nullptr, nullptr, SW_SHOWNORMAL);
+		ExitProcess(0);
 	}
 
 	// Returns true if authenticated. Blocks until success or user quits.

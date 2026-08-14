@@ -57,7 +57,7 @@ public:
         hwnd = CreateWindowEx(
             WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
             wc.lpszClassName,
-            L"Dk External v1.1",
+            L"Dk External v1.2.1",
             WS_POPUP,
             0,
             0,
@@ -101,8 +101,9 @@ public:
         ImGuiIO& io{ ImGui::GetIO() };
         io.IniFilename = nullptr;
 
-        const char* fontCandidates[]{
-            "C:\\Windows\\Fonts\\segoeuisl.ttf",
+		const char* fontCandidates[]{
+            "C:\\Windows\\Fonts\\segoeuib.ttf",
+            "C:\\Windows\\Fonts\\seguisb.ttf",
             "C:\\Windows\\Fonts\\segoeui.ttf",
             "C:\\Windows\\Fonts\\calibri.ttf",
             "C:\\Windows\\Fonts\\candara.ttf"
@@ -113,7 +114,7 @@ public:
         {
             if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES)
             {
-                io.Fonts->AddFontFromFileTTF(fontPath, 17.0f);
+            io.Fonts->AddFontFromFileTTF(fontPath, 17.0f);
                 fontLoaded = true;
                 break;
             }

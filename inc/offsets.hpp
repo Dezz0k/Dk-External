@@ -96,6 +96,7 @@ namespace Offsets
 	inline uintptr_t PartSize{ offsets::Primitive::Size };
 	inline uintptr_t Ping{ offsets::Ping::Value };
 	inline uintptr_t PlaceId{ offsets::DataModel::PlaceId };
+	inline uintptr_t PlatformStand{ offsets::Humanoid::PlatformStand };
 	inline uintptr_t PlayerConfigurerPointer{ offsets::Pointers::PlayerConfigurer };
 	inline uintptr_t PlayerMouse{ offsets::LocalPlayer::PlayerMouse };
 	inline uintptr_t Position{ offsets::Primitive::Position };
