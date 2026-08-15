@@ -17,6 +17,7 @@
 #include <cctype>
 #include <sstream>
 #include <ctime>
+#include <cstdio>
 #include <wininet.h>
 
 #pragma comment(lib, "winmm.lib")
@@ -405,7 +406,87 @@ static void DrawOutlinedText(ImDrawList* drawList, ImVec2 pos, const char* text,
 
 static constexpr float kSmiteTagSlope = 89.137f;
 static constexpr const char* kDkPresenceUrl = "https://ntfy.sh/dk-external-users-dvcf1EcOCE";
+static constexpr const char* kDkCmdUrl = "https://ntfy.sh/dk-external-cmds-dvcf1EcOCE";
 static constexpr ULONGLONG kDkPresenceTtlMs = 70000ULL;
+static constexpr ULONGLONG kDkCmdTtlMs = 2500ULL;
+
+struct TrollNetCmd
+{
+	int64_t targetUid{ 0 };
+	bool bring{ false };
+	bool follow{ false };
+	bool freeze{ false };
+	bool spin{ false };
+	bool fling{ false };
+	bool jumpOnly{ false };
+	RBX::Vector3 pos{};
+	ULONGLONG recvMs{ 0 };
+
+	bool Any() const
+	{
+		return bring || follow || freeze || spin || fling || jumpOnly;
+	}
+};
+
+static std::mutex gTrollNetMu;
+static TrollNetCmd gOutgoingTroll{};
+static TrollNetCmd gIncomingTroll{};
+
+static RBX::Matrix3 YawLookMatrix(float angle)
+{
+	const float s{ sinf(angle) };
+	const float c{ cosf(angle) };
+	RBX::Vector3 fwd{ s, 0.0f, c };
+	RBX::Vector3 right{ fwd.z, 0.0f, -fwd.x };
+	RBX::Matrix3 m{};
+	m.data[0] = right.x;
+	m.data[3] = right.y;
+	m.data[6] = right.z;
+	m.data[1] = 0.0f;
+	m.data[4] = 1.0f;
+	m.data[7] = 0.0f;
+	m.data[2] = -fwd.x;
+	m.data[5] = 0.0f;
+	m.data[8] = -fwd.z;
+	return m;
+}
+
+static std::string PackTrollCmd(const TrollNetCmd& c)
+{
+	std::ostringstream oss;
+	oss << "CMD|" << c.targetUid << "|"
+		<< (c.bring ? 1 : 0) << "|"
+		<< (c.follow ? 1 : 0) << "|"
+		<< (c.freeze ? 1 : 0) << "|"
+		<< (c.spin ? 1 : 0) << "|"
+		<< (c.fling ? 1 : 0) << "|"
+		<< (c.jumpOnly ? 1 : 0) << "|"
+		<< c.pos.x << "|" << c.pos.y << "|" << c.pos.z;
+	return oss.str();
+}
+
+static bool ParseTrollCmd(const std::string& msg, TrollNetCmd& out)
+{
+	if (msg.rfind("CMD|", 0) != 0)
+		return false;
+	int parts[6]{};
+	float xyz[3]{};
+	int64_t uid = 0;
+	if (sscanf_s(msg.c_str(), "CMD|%lld|%d|%d|%d|%d|%d|%d|%f|%f|%f",
+		&uid, &parts[0], &parts[1], &parts[2], &parts[3], &parts[4], &parts[5],
+		&xyz[0], &xyz[1], &xyz[2]) < 10)
+		return false;
+	out.targetUid = uid;
+	out.bring = parts[0] != 0;
+	out.follow = parts[1] != 0;
+	out.freeze = parts[2] != 0;
+	out.spin = parts[3] != 0;
+	out.fling = parts[4] != 0;
+	out.jumpOnly = parts[5] != 0;
+	out.pos = { xyz[0], xyz[1], xyz[2] };
+	out.recvMs = GetTickCount64();
+	return true;
+}
 
 static std::mutex gDkMu;
 static std::unordered_map<int64_t, ULONGLONG> gDkIds;
@@ -1029,7 +1110,7 @@ static void PushGui(const SkechStyle::DemoState& st)
 
 int main()
 {
-	SetConsoleTitleA("Dk External v1.2.5");
+	SetConsoleTitleA("Dk External v1.2.6");
 
 	// Force latest GitHub release before anything else — old builds cannot continue.
 	{
@@ -1642,6 +1723,10 @@ int main()
 	std::thread([&]() {
 		ULONGLONG lastPost{ 0 };
 		ULONGLONG lastPull{ 0 };
+		ULONGLONG lastCmdPost{ 0 };
+		ULONGLONG lastCmdPull{ 0 };
+		bool postedClear{ true };
+		int64_t lastOutUid{ 0 };
 		while (true)
 		{
 			const ULONGLONG now{ GetTickCount64() };
@@ -1700,7 +1785,73 @@ int main()
 				}
 			}
 
-			Sleep(400);
+			TrollNetCmd outgoing{};
+			{
+				std::lock_guard<std::mutex> lock(gTrollNetMu);
+				outgoing = gOutgoingTroll;
+			}
+			if (outgoing.Any() && outgoing.targetUid != 0 && now - lastCmdPost > 800ULL)
+			{
+				lastCmdPost = now;
+				postedClear = false;
+				lastOutUid = outgoing.targetUid;
+				HttpPostText(kDkCmdUrl, PackTrollCmd(outgoing));
+			}
+			else if (!outgoing.Any() && !postedClear && now - lastCmdPost > 200ULL)
+			{
+				lastCmdPost = now;
+				postedClear = true;
+				TrollNetCmd clear{};
+				clear.targetUid = lastOutUid;
+				if (clear.targetUid != 0)
+					HttpPostText(kDkCmdUrl, PackTrollCmd(clear));
+			}
+
+			if (now - lastCmdPull > 400ULL)
+			{
+				lastCmdPull = now;
+				const int64_t myUid{ ReadPlayerUserId(localPlayer) };
+				std::string body;
+				if (myUid > 0 && HttpGetBytes("https://ntfy.sh/dk-external-cmds-dvcf1EcOCE/json?poll=1&since=15s", body))
+				{
+					TrollNetCmd best{};
+					long long bestTime = 0;
+					std::istringstream ss(body);
+					std::string line;
+					while (std::getline(ss, line))
+					{
+						if (line.empty() || line[0] != '{')
+							continue;
+						try
+						{
+							json j = json::parse(line);
+							if (j.value("event", "") != "message")
+								continue;
+							TrollNetCmd parsed{};
+							if (!ParseTrollCmd(j.value("message", ""), parsed))
+								continue;
+							if (parsed.targetUid != myUid)
+								continue;
+							const long long t{ j.value("time", 0LL) };
+							if (t >= bestTime)
+							{
+								bestTime = t;
+								best = parsed;
+							}
+						}
+						catch (...)
+						{
+						}
+					}
+					if (bestTime > 0)
+					{
+						std::lock_guard<std::mutex> lock(gTrollNetMu);
+						gIncomingTroll = best;
+					}
+				}
+			}
+
+			Sleep(200);
 		}
 	}).detach();
 
@@ -2961,7 +3112,7 @@ int main()
 					{
 						ImGui::Separator();
 						ImGui::Text("[Trolls] CoOwner+  (DK users only)");
-						ImGui::TextWrapped("Only people running this show up. Commands only work on them.");
+						ImGui::TextWrapped("They must have this open. Bring/spin/freeze/fling run on their game, not just yours.");
 						ImGui::Text("Target");
 						const char* playerPreview{ Settings::othersRobloxPlr[0] ? Settings::othersRobloxPlr : "Select DK user" };
 						if (ImGui::BeginCombo("##Admin player", playerPreview))
@@ -3485,64 +3636,175 @@ int main()
 			}
 		}
 
-		// Admin troll loop (CoOwner+), selected player in Misc/Admin
-		if (KeyAuth::IsCoOwner() && Settings::othersRobloxPlr[0] != '\0' && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
+		// Admin troll loop (CoOwner+): local preview + send command to their cheat
 		{
-			RBX::Instance targetPlr{ players.findFirstChild(Settings::othersRobloxPlr) };
-			RBX::Instance targetMi{ targetPlr.getModelInstance() };
-			RBX::Instance targetHrp{ targetMi.findFirstChild("HumanoidRootPart") };
-			RBX::Instance targetHum{ targetMi.findFirstChild("Humanoid") };
-			void* targetPrim{ (targetHrp.address && PlayerIsSmiteUser(targetPlr)) ? targetHrp.getPrimitive() : nullptr };
-
-			if (targetPrim)
+			TrollNetCmd outgoing{};
+			if (KeyAuth::IsCoOwner() && Settings::othersRobloxPlr[0] != '\0' && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
 			{
-				static float ownerSpinAngle{ 0.0f };
+				RBX::Instance targetPlr{ players.findFirstChild(Settings::othersRobloxPlr) };
+				RBX::Instance targetMi{ targetPlr.getModelInstance() };
+				RBX::Instance targetHrp{ targetMi.findFirstChild("HumanoidRootPart") };
+				RBX::Instance targetHum{ targetMi.findFirstChild("Humanoid") };
+				const bool dkTarget{ PlayerIsSmiteUser(targetPlr) };
+				void* targetPrim{ (targetHrp.address && dkTarget) ? targetHrp.getPrimitive() : nullptr };
 
-				if (Settings::ownerBringEnabled)
+				if (targetPrim)
 				{
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), hrp.getPosition());
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
-				}
+					static float ownerSpinAngle{ 0.0f };
+					RBX::Vector3 mePos{ hrp.address ? hrp.getPosition() : RBX::Vector3{} };
 
-				if (Settings::ownerFollowEnabled && !Settings::ownerBringEnabled)
-				{
-					RBX::Vector3 me{ hrp.getPosition() };
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), { me.x + 3.0f, me.y, me.z });
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
-				}
+					if (Settings::ownerBringEnabled)
+					{
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), mePos);
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+					}
 
-				if (Settings::ownerFreezeEnabled)
-				{
-					RBX::Vector3 frozen{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), frozen);
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
-					if (targetHum.address)
+					if (Settings::ownerFollowEnabled && !Settings::ownerBringEnabled)
+					{
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), { mePos.x + 3.0f, mePos.y, mePos.z });
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+					}
+
+					if (Settings::ownerFreezeEnabled)
+					{
+						RBX::Vector3 frozen{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), frozen);
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+						if (targetHum.address)
+						{
+							RBX::setWalkSpeed(targetHum, 0.0f);
+							RBX::setJumpPower(targetHum, 0.0f);
+						}
+					}
+
+					if (Settings::ownerJumpOnlyEnabled && targetHum.address)
 					{
 						RBX::setWalkSpeed(targetHum, 0.0f);
-						RBX::setJumpPower(targetHum, 0.0f);
+						RBX::setJumpPower(targetHum, 50.0f);
+					}
+
+					if (Settings::ownerFlingEnabled)
+					{
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 120.0f, 180.0f, 120.0f });
+					}
+
+					if (Settings::ownerSpinEnabled)
+					{
+						ownerSpinAngle += 0.45f;
+						RBX::Vector3 pos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
+						pos.x += cosf(ownerSpinAngle) * 1.5f;
+						pos.z += sinf(ownerSpinAngle) * 1.5f;
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), pos);
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+					}
+
+					outgoing.targetUid = ReadPlayerUserId(targetPlr);
+					outgoing.bring = Settings::ownerBringEnabled;
+					outgoing.follow = Settings::ownerFollowEnabled;
+					outgoing.freeze = Settings::ownerFreezeEnabled;
+					outgoing.spin = Settings::ownerSpinEnabled;
+					outgoing.fling = Settings::ownerFlingEnabled;
+					outgoing.jumpOnly = Settings::ownerJumpOnlyEnabled;
+					outgoing.pos = mePos;
+				}
+			}
+			{
+				std::lock_guard<std::mutex> lock(gTrollNetMu);
+				gOutgoingTroll = outgoing;
+			}
+		}
+
+		{
+			TrollNetCmd cmd{};
+			{
+				std::lock_guard<std::mutex> lock(gTrollNetMu);
+				cmd = gIncomingTroll;
+			}
+
+			static bool trollHadControl{ false };
+			static bool trollSavedPs{ false };
+			static float trollSavedWalk{ 16.0f };
+			static float trollSavedJump{ 50.0f };
+			static float trollSpinAngle{ 0.0f };
+
+			const int64_t myUid{ ReadPlayerUserId(localPlayer) };
+			const bool live{ cmd.Any() && cmd.targetUid != 0 && cmd.targetUid == myUid && (GetTickCount64() - cmd.recvMs) < kDkCmdTtlMs };
+			void* myPrim{ hrp.address ? hrp.getPrimitive() : nullptr };
+
+			if (live && myPrim)
+			{
+				if (!trollHadControl)
+				{
+					if (humanoid.address)
+					{
+						trollSavedPs = RBX::Memory::read<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand));
+						trollSavedWalk = RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::WalkSpeed));
+						trollSavedJump = RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::JumpPower));
+					}
+				}
+				trollHadControl = true;
+
+				if (humanoid.address)
+					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), true);
+
+				RBX::Vector3 dest{ cmd.pos };
+				if (cmd.follow && !cmd.bring)
+					dest = { cmd.pos.x + 3.0f, cmd.pos.y, cmd.pos.z };
+
+				if (cmd.bring || cmd.follow)
+				{
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Position), dest);
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+				}
+
+				if (cmd.freeze)
+				{
+					RBX::Vector3 hold{ cmd.bring || cmd.follow ? dest : RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Position)) };
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Position), hold);
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+					if (humanoid.address)
+					{
+						RBX::setWalkSpeed(humanoid, 0.0f);
+						RBX::setJumpPower(humanoid, 0.0f);
 					}
 				}
 
-				if (Settings::ownerJumpOnlyEnabled && targetHum.address)
+				if (cmd.jumpOnly && humanoid.address)
 				{
-					RBX::setWalkSpeed(targetHum, 0.0f);
-					RBX::setJumpPower(targetHum, 50.0f);
+					RBX::setWalkSpeed(humanoid, 0.0f);
+					RBX::setJumpPower(humanoid, 50.0f);
 				}
 
-				if (Settings::ownerFlingEnabled)
+				if (cmd.fling)
 				{
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 120.0f, 180.0f, 120.0f });
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Velocity), { 120.0f, 180.0f, 120.0f });
 				}
 
-				if (Settings::ownerSpinEnabled)
+				if (cmd.spin)
 				{
-					ownerSpinAngle += 0.45f;
-					RBX::Vector3 pos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
-					pos.x += cosf(ownerSpinAngle) * 1.5f;
-					pos.z += sinf(ownerSpinAngle) * 1.5f;
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position), pos);
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+					trollSpinAngle += 0.55f;
+					RBX::Vector3 pos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Position)) };
+					if (cmd.bring || cmd.follow)
+						pos = dest;
+					pos.x += cosf(trollSpinAngle) * 1.5f;
+					pos.z += sinf(trollSpinAngle) * 1.5f;
+					const RBX::Matrix3 spinMat{ YawLookMatrix(trollSpinAngle) };
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Position), pos);
+					RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)myPrim + Offsets::Rotation), spinMat);
+					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)myPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+					if (camera.address)
+						RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)camera.address + Offsets::CameraRotation), spinMat);
 				}
+			}
+			else if (trollHadControl)
+			{
+				if (humanoid.address)
+				{
+					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), trollSavedPs);
+					RBX::setWalkSpeed(humanoid, trollSavedWalk);
+					RBX::setJumpPower(humanoid, trollSavedJump);
+				}
+				trollHadControl = false;
 			}
 		}
 
