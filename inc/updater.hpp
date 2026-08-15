@@ -14,11 +14,10 @@
 
 using json = nlohmann::json;
 
-// Change these to match your GitHub repo. Releases must use tags like v1.1.1
-// and attach an asset named exactly UPDATE_ASSET_NAME.
+// Releases must use tags like v1.1.1 and attach an asset named UPDATE_ASSET_NAME.
 namespace UpdaterConfig
 {
-	constexpr const char* APP_VERSION = "1.2.3";
+	constexpr const char* APP_VERSION = "1.2.4";
 	constexpr const char* GITHUB_OWNER = "Dezz0k";
 	constexpr const char* GITHUB_REPO = "Dk-External";
 	constexpr const char* UPDATE_ASSET_NAME = "DkExternal.exe";
@@ -28,15 +27,44 @@ namespace Updater
 {
 	enum class Result
 	{
-		Continue,      // already on latest — safe to run
-		ExitForUpdate, // update applied; process should exit and restart
-		ExitBlocked    // could not verify/update — do not allow old build to run
+		Continue,
+		ExitForUpdate,
+		ExitBlocked
 	};
 
 	inline void FailPause(const std::string& message)
 	{
 		std::cout << message << "\n";
 		system("pause");
+	}
+
+	inline DWORD HttpStatus(HINTERNET hUrl)
+	{
+		DWORD status = 0;
+		DWORD statusSize = sizeof(status);
+		HttpQueryInfoA(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &status, &statusSize, nullptr);
+		return status;
+	}
+
+	inline std::string HttpQueryHeader(HINTERNET hUrl, DWORD query)
+	{
+		char buf[2048]{};
+		DWORD size = sizeof(buf);
+		if (!HttpQueryInfoA(hUrl, query, buf, &size, nullptr))
+			return {};
+		return std::string(buf, size);
+	}
+
+	inline HINTERNET OpenUrl(HINTERNET hInternet, const std::string& url, const char* headers, DWORD extraFlags = 0)
+	{
+		return InternetOpenUrlA(
+			hInternet,
+			url.c_str(),
+			headers,
+			headers ? static_cast<DWORD>(strlen(headers)) : 0,
+			INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE |
+			INTERNET_FLAG_NO_UI | INTERNET_FLAG_KEEP_CONNECTION | extraFlags,
+			0);
 	}
 
 	inline std::string HttpGet(const std::string& url)
@@ -49,20 +77,15 @@ namespace Updater
 			nullptr,
 			nullptr,
 			0);
-
 		if (!hInternet)
 			return result;
 
-		const char* headers = "Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n";
+		const char* headers =
+			"User-Agent: DkExternalUpdater/1.0\r\n"
+			"Accept: application/vnd.github+json\r\n"
+			"X-GitHub-Api-Version: 2022-11-28\r\n";
 
-		HINTERNET hUrl = InternetOpenUrlA(
-			hInternet,
-			url.c_str(),
-			headers,
-			static_cast<DWORD>(strlen(headers)),
-			INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE,
-			0);
-
+		HINTERNET hUrl = OpenUrl(hInternet, url, headers);
 		if (!hUrl)
 		{
 			InternetCloseHandle(hInternet);
@@ -71,7 +94,6 @@ namespace Updater
 
 		char buffer[4096];
 		DWORD bytesRead = 0;
-
 		while (InternetReadFile(hUrl, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0)
 		{
 			result.append(buffer, bytesRead);
@@ -88,7 +110,6 @@ namespace Updater
 		std::ifstream in(path, std::ios::binary);
 		if (!in.is_open())
 			return false;
-
 		char magic[2]{};
 		in.read(magic, 2);
 		return in.gcount() == 2 && magic[0] == 'M' && magic[1] == 'Z';
@@ -102,34 +123,45 @@ namespace Updater
 			nullptr,
 			nullptr,
 			0);
-
 		if (!hInternet)
 			return false;
 
-		const char* headers = "Accept: application/octet-stream\r\n";
+		std::string current = url;
+		HINTERNET hUrl = nullptr;
+		for (int hop = 0; hop < 8; ++hop)
+		{
+			const char* headers =
+				"User-Agent: DkExternalUpdater/1.0\r\n"
+				"Accept: application/octet-stream\r\n";
 
-		HINTERNET hUrl = InternetOpenUrlA(
-			hInternet,
-			url.c_str(),
-			headers,
-			static_cast<DWORD>(strlen(headers)),
-			INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE |
-			INTERNET_FLAG_NO_UI,
-			0);
+			hUrl = OpenUrl(hInternet, current, headers, INTERNET_FLAG_NO_AUTO_REDIRECT);
+			if (!hUrl)
+				break;
+
+			const DWORD status = HttpStatus(hUrl);
+			if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308)
+			{
+				std::string loc = HttpQueryHeader(hUrl, HTTP_QUERY_LOCATION);
+				InternetCloseHandle(hUrl);
+				hUrl = nullptr;
+				if (loc.empty())
+					break;
+				current = loc;
+				continue;
+			}
+
+			if (status != 0 && status != 200)
+			{
+				InternetCloseHandle(hUrl);
+				hUrl = nullptr;
+				break;
+			}
+
+			break;
+		}
 
 		if (!hUrl)
 		{
-			InternetCloseHandle(hInternet);
-			return false;
-		}
-
-		// Prefer the GitHub API asset redirect chain to land on the real binary.
-		DWORD status = 0;
-		DWORD statusSize = sizeof(status);
-		HttpQueryInfoA(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &status, &statusSize, nullptr);
-		if (status != 0 && status != 200 && status != 302 && status != 301)
-		{
-			InternetCloseHandle(hUrl);
 			InternetCloseHandle(hInternet);
 			return false;
 		}
@@ -148,7 +180,6 @@ namespace Updater
 		char buffer[8192];
 		DWORD bytesRead = 0;
 		bool ok = false;
-
 		while (InternetReadFile(hUrl, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0)
 		{
 			out.write(buffer, static_cast<std::streamsize>(bytesRead));
@@ -165,7 +196,6 @@ namespace Updater
 			std::filesystem::remove(outPath, ec);
 			return false;
 		}
-
 		return true;
 	}
 
@@ -177,22 +207,13 @@ namespace Updater
 		std::vector<int> parts;
 		std::stringstream ss(version);
 		std::string item;
-
 		while (std::getline(ss, item, '.'))
 		{
-			try
-			{
-				parts.push_back(std::stoi(item));
-			}
-			catch (...)
-			{
-				parts.push_back(0);
-			}
+			try { parts.push_back(std::stoi(item)); }
+			catch (...) { parts.push_back(0); }
 		}
-
 		while (parts.size() < 3)
 			parts.push_back(0);
-
 		return parts;
 	}
 
@@ -200,7 +221,6 @@ namespace Updater
 	{
 		auto remote = ParseVersion(remoteVersion);
 		auto local = ParseVersion(localVersion);
-
 		for (size_t i = 0; i < 3; ++i)
 		{
 			if (remote[i] > local[i])
@@ -208,7 +228,6 @@ namespace Updater
 			if (remote[i] < local[i])
 				return false;
 		}
-
 		return false;
 	}
 
@@ -224,18 +243,27 @@ namespace Updater
 		return std::filesystem::path(path);
 	}
 
+	inline std::filesystem::path GetTempPayloadPath()
+	{
+		char tmp[MAX_PATH]{};
+		GetTempPathA(MAX_PATH, tmp);
+		return std::filesystem::path(tmp) / "dk_update_payload.exe";
+	}
+
 	inline bool ApplyUpdate(const std::filesystem::path& downloadedExe)
 	{
 		const auto exePath = GetExePath();
 		const auto dir = exePath.parent_path();
-		const auto batPath = dir / "dk_update.bat";
+		char tmp[MAX_PATH]{};
+		GetTempPathA(MAX_PATH, tmp);
+		const auto batPath = std::filesystem::path(tmp) / "dk_update.bat";
 		const DWORD pid = GetCurrentProcessId();
 
 		std::ofstream bat(batPath);
 		if (!bat.is_open())
 			return false;
 
-		// Wait for THIS pid to exit, then overwrite the exact launched path (same folder + filename).
+		// Never delete DkExternal.exe after copying — that was wiping GitHub downloads.
 		bat
 			<< "@echo off\r\n"
 			<< "setlocal EnableExtensions\r\n"
@@ -244,26 +272,27 @@ namespace Updater
 			<< "set \"NEWFILE=" << downloadedExe.string() << "\"\r\n"
 			<< "set \"PID=" << pid << "\"\r\n"
 			<< "cd /d \"%DIR%\"\r\n"
+			<< "set N=0\r\n"
 			<< ":wait\r\n"
-			<< "ping 127.0.0.1 -n 2 >nul\r\n"
+			<< "timeout /t 1 /nobreak >nul\r\n"
 			<< "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
-			<< "if not errorlevel 1 goto wait\r\n"
-			<< "del /f /q \"%TARGET%\" >nul 2>&1\r\n"
-			<< "if exist \"%TARGET%\" (\r\n"
-			<< "  ping 127.0.0.1 -n 2 >nul\r\n"
-			<< "  del /f /q \"%TARGET%\" >nul 2>&1\r\n"
+			<< "if not errorlevel 1 (\r\n"
+			<< "  set /a N+=1\r\n"
+			<< "  if %N% LSS 30 goto wait\r\n"
 			<< ")\r\n"
-			<< "copy /y \"%NEWFILE%\" \"%TARGET%\" >nul\r\n"
-			<< "if not exist \"%TARGET%\" (\r\n"
-			<< "  echo Updater failed to replace exe.\r\n"
-			<< "  pause\r\n"
-			<< "  exit /b 1\r\n"
-			<< ")\r\n"
+			<< "set N=0\r\n"
+			<< ":retry\r\n"
+			<< "copy /Y \"%NEWFILE%\" \"%TARGET%\" >nul 2>&1\r\n"
+			<< "if exist \"%TARGET%\" goto launch\r\n"
+			<< "set /a N+=1\r\n"
+			<< "timeout /t 1 /nobreak >nul\r\n"
+			<< "if %N% LSS 20 goto retry\r\n"
+			<< "echo Updater failed to replace exe.\r\n"
+			<< "pause\r\n"
+			<< "exit /b 1\r\n"
+			<< ":launch\r\n"
 			<< "del /f /q \"%NEWFILE%\" >nul 2>&1\r\n"
-			<< "del /f /q \"%DIR%\\*.new\" >nul 2>&1\r\n"
-			<< "del /f /q \"%DIR%\\DkExternal.exe\" >nul 2>&1\r\n"
-			<< "del /f /q \"%DIR%\\DkExternal.exe.new\" >nul 2>&1\r\n"
-			<< "start \"Dk External\" /D \"%DIR%\" \"%TARGET%\"\r\n"
+			<< "start \"\" /D \"%DIR%\" \"%TARGET%\"\r\n"
 			<< "del /f /q \"%~f0\" >nul 2>&1\r\n";
 
 		bat.close();
@@ -274,7 +303,7 @@ namespace Updater
 		si.wShowWindow = SW_HIDE;
 		PROCESS_INFORMATION pi{};
 
-		std::string cmd = "cmd.exe /C \"\"" + batPath.string() + "\"\"";
+		std::string cmd = "cmd.exe /C call \"" + batPath.string() + "\"";
 		std::vector<char> cmdBuf(cmd.begin(), cmd.end());
 		cmdBuf.push_back('\0');
 
@@ -284,22 +313,68 @@ namespace Updater
 			nullptr,
 			nullptr,
 			FALSE,
-			CREATE_NO_WINDOW,
+			CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB,
 			nullptr,
 			dir.string().c_str(),
 			&si,
 			&pi);
 
 		if (!created)
-			return false;
+		{
+			std::string cmd2 = "cmd.exe /C call \"" + batPath.string() + "\"";
+			std::vector<char> cmdBuf2(cmd2.begin(), cmd2.end());
+			cmdBuf2.push_back('\0');
+			if (!CreateProcessA(
+				nullptr, cmdBuf2.data(), nullptr, nullptr, FALSE,
+				CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+				nullptr, dir.string().c_str(), &si, &pi))
+			{
+				return false;
+			}
+		}
 
 		CloseHandle(pi.hThread);
 		CloseHandle(pi.hProcess);
 		return true;
 	}
 
-	// Must run before anything else.
-	// Old builds are blocked unless they successfully update to the latest GitHub release.
+	inline bool DownloadLatestAsset(const json& release, const std::filesystem::path& tempPath)
+	{
+		std::vector<std::string> urls;
+		if (release.contains("assets") && release["assets"].is_array())
+		{
+			for (const auto& asset : release["assets"])
+			{
+				if (!asset.contains("name"))
+					continue;
+				const std::string name = asset["name"].get<std::string>();
+				if (name != UpdaterConfig::UPDATE_ASSET_NAME && name.find(".exe") == std::string::npos)
+					continue;
+
+				if (asset.contains("url") && asset["url"].is_string())
+					urls.push_back(asset["url"].get<std::string>());
+				if (asset.contains("browser_download_url") && asset["browser_download_url"].is_string())
+					urls.push_back(asset["browser_download_url"].get<std::string>());
+
+				if (name == UpdaterConfig::UPDATE_ASSET_NAME)
+					break;
+			}
+		}
+
+		urls.push_back(
+			std::string("https://github.com/") + UpdaterConfig::GITHUB_OWNER + "/" +
+			UpdaterConfig::GITHUB_REPO + "/releases/latest/download/" + UpdaterConfig::UPDATE_ASSET_NAME);
+
+		for (const auto& url : urls)
+		{
+			if (url.empty())
+				continue;
+			if (HttpDownloadFile(url, tempPath))
+				return true;
+		}
+		return false;
+	}
+
 	inline Result CheckAndUpdate()
 	{
 		std::cout << "Checking for updates (local v" << UpdaterConfig::APP_VERSION << ")...\n";
@@ -309,21 +384,25 @@ namespace Updater
 			UpdaterConfig::GITHUB_OWNER + "/" +
 			UpdaterConfig::GITHUB_REPO + "/releases/latest";
 
-		const std::string body = HttpGet(apiUrl);
-		if (body.empty())
+		std::string body = HttpGet(apiUrl);
+		json release;
+		bool parsed = false;
+		if (!body.empty())
 		{
-			FailPause("Updater: could not reach GitHub. Internet is required — blocked.");
-			return Result::ExitBlocked;
+			try
+			{
+				release = json::parse(body);
+				parsed = release.contains("tag_name") && release["tag_name"].is_string();
+			}
+			catch (...)
+			{
+				parsed = false;
+			}
 		}
 
-		json release;
-		try
+		if (!parsed)
 		{
-			release = json::parse(body);
-		}
-		catch (...)
-		{
-			FailPause("Updater: invalid release response — blocked.");
+			FailPause("Updater: could not reach GitHub. Internet is required — blocked.");
 			return Result::ExitBlocked;
 		}
 
@@ -337,12 +416,6 @@ namespace Updater
 			}
 		}
 
-		if (!release.contains("tag_name") || !release["tag_name"].is_string())
-		{
-			FailPause("Updater: no GitHub releases found — blocked.");
-			return Result::ExitBlocked;
-		}
-
 		const std::string remoteTag = release["tag_name"].get<std::string>();
 
 		if (IsSameVersion(remoteTag, UpdaterConfig::APP_VERSION))
@@ -353,43 +426,15 @@ namespace Updater
 
 		if (!IsRemoteNewer(remoteTag, UpdaterConfig::APP_VERSION))
 		{
-			// Local is ahead of published release (dev build) — allow.
 			std::cout << "Updater: local v" << UpdaterConfig::APP_VERSION
 				<< " is newer than release " << remoteTag << ". Continuing.\n";
 			return Result::Continue;
 		}
 
-		std::string downloadUrl;
-		if (release.contains("assets") && release["assets"].is_array())
-		{
-			for (const auto& asset : release["assets"])
-			{
-				if (!asset.contains("name") || !asset.contains("browser_download_url"))
-					continue;
-
-				if (asset["name"].get<std::string>() == UpdaterConfig::UPDATE_ASSET_NAME)
-				{
-					downloadUrl = asset["browser_download_url"].get<std::string>();
-					break;
-				}
-			}
-		}
-
-		if (downloadUrl.empty())
-		{
-			FailPause(
-				std::string("Updater: release ") + remoteTag +
-				" has no asset named \"" + UpdaterConfig::UPDATE_ASSET_NAME + "\" — blocked.");
-			return Result::ExitBlocked;
-		}
-
 		std::cout << "Updater: outdated build. Downloading " << remoteTag << "...\n";
 
-		const auto exePath = GetExePath();
-		const auto dir = exePath.parent_path();
-		const auto tempPath = dir / "dk_update_payload.exe";
-
-		if (!HttpDownloadFile(downloadUrl, tempPath))
+		const auto tempPath = GetTempPayloadPath();
+		if (!DownloadLatestAsset(release, tempPath))
 		{
 			FailPause("Updater: download failed — blocked. Retry when online.");
 			return Result::ExitBlocked;

@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <mmsystem.h>
 #include <iostream>
 #include <fstream>
 #include <thread>
@@ -17,6 +18,8 @@
 #include <sstream>
 #include <ctime>
 #include <wininet.h>
+
+#pragma comment(lib, "winmm.lib")
 
 #include "resource.h"
 
@@ -1026,7 +1029,7 @@ static void PushGui(const SkechStyle::DemoState& st)
 
 int main()
 {
-	SetConsoleTitleA("Dk External v1.2.3");
+	SetConsoleTitleA("Dk External v1.2.4");
 
 	// Force latest GitHub release before anything else — old builds cannot continue.
 	{
@@ -1436,11 +1439,15 @@ int main()
 	std::thread([&]() {
 		bool wasOrbit{ false };
 		bool savedPlatformStand{ false };
+		bool timerPeriodOn{ false };
+		uint8_t savedPrimFlags{ 0 };
 		float angle{ 0.0f };
 		char cachedName[128]{};
 		void* cachedTargetPrim{ nullptr };
 		void* cachedLocalPrim{ nullptr };
 		ULONGLONG lastTargetRefresh{ 0 };
+		RBX::Vector3 smoothCenter{};
+		bool haveSmooth{ false };
 		LARGE_INTEGER freq{};
 		LARGE_INTEGER last{};
 		QueryPerformanceFrequency(&freq);
@@ -1450,9 +1457,20 @@ int main()
 		{
 			if (!Settings::orbitEnabled)
 			{
-				if (wasOrbit && humanoid.address)
-					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), savedPlatformStand);
+				if (wasOrbit)
+				{
+					if (humanoid.address)
+						RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), savedPlatformStand);
+					if (cachedLocalPrim)
+						RBX::Memory::write<uint8_t>((void*)((uintptr_t)cachedLocalPrim + Offsets::Anchored), savedPrimFlags);
+					if (timerPeriodOn)
+					{
+						timeEndPeriod(1);
+						timerPeriodOn = false;
+					}
+				}
 				wasOrbit = false;
+				haveSmooth = false;
 				cachedName[0] = '\0';
 				cachedTargetPrim = nullptr;
 				cachedLocalPrim = nullptr;
@@ -1461,18 +1479,25 @@ int main()
 				continue;
 			}
 
+			if (!timerPeriodOn)
+			{
+				timeBeginPeriod(1);
+				timerPeriodOn = true;
+			}
+
 			LARGE_INTEGER now{};
 			QueryPerformanceCounter(&now);
 			float dt{ static_cast<float>(now.QuadPart - last.QuadPart) / static_cast<float>(freq.QuadPart) };
 			last = now;
-			if (dt < 0.0f)
-				dt = 0.0f;
-			if (dt > 0.05f)
-				dt = 0.05f;
+			if (dt < 0.0002f)
+				dt = 0.0002f;
+			if (dt > 0.033f)
+				dt = 0.033f;
 
 			if (!wasOrbit)
 			{
 				angle = 0.0f;
+				haveSmooth = false;
 				lastTargetRefresh = 0;
 				if (humanoid.address)
 				{
@@ -1480,7 +1505,6 @@ int main()
 					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), true);
 				}
 			}
-			wasOrbit = true;
 
 			if (Settings::othersRobloxPlr[0] == '\0')
 			{
@@ -1489,17 +1513,17 @@ int main()
 				continue;
 			}
 
+			cachedLocalPrim = hrp.address ? hrp.getPrimitive() : nullptr;
+
 			const ULONGLONG nowMs{ GetTickCount64() };
-			if (nowMs - lastTargetRefresh > 120ULL || strcmp(cachedName, Settings::othersRobloxPlr) != 0)
+			if (nowMs - lastTargetRefresh > 80ULL || strcmp(cachedName, Settings::othersRobloxPlr) != 0)
 			{
 				strncpy_s(cachedName, Settings::othersRobloxPlr, _TRUNCATE);
 				lastTargetRefresh = nowMs;
-
 				RBX::Instance plr{ players.findFirstChild(Settings::othersRobloxPlr) };
 				RBX::Instance plrMi{ plr.address ? plr.getModelInstance() : RBX::Instance(nullptr) };
 				RBX::Instance plrHrp{ plrMi.address ? plrMi.findFirstChild("HumanoidRootPart") : RBX::Instance(nullptr) };
 				cachedTargetPrim = plrHrp.address ? plrHrp.getPrimitive() : nullptr;
-				cachedLocalPrim = hrp.address ? hrp.getPrimitive() : nullptr;
 			}
 
 			void* targetPrim{ cachedTargetPrim };
@@ -1510,9 +1534,22 @@ int main()
 				continue;
 			}
 
+			if (!wasOrbit)
+			{
+				savedPrimFlags = RBX::Memory::read<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored));
+			}
+			wasOrbit = true;
+
+			if (humanoid.address)
+				RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), true);
+
+			uint8_t flags{ savedPrimFlags };
+			flags = static_cast<uint8_t>(flags & ~static_cast<uint8_t>(offsets::PrimitiveFlags::CanCollideMask));
+			RBX::Memory::write<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored), flags);
+
 			const float omega{ 6.28318530718f * Settings::orbitSpeedMultiplier };
 			angle += omega * dt;
-			if (angle > 6.28318530718f)
+			if (angle >= 6.28318530718f)
 				angle -= 6.28318530718f;
 
 			const float radius{ 8.0f * Settings::orbitDistanceMultiplier };
@@ -1522,10 +1559,30 @@ int main()
 			const RBX::Vector3 targetPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
 			const RBX::Vector3 targetVel{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity)) };
 
+			if (!haveSmooth)
+			{
+				smoothCenter = targetPos;
+				haveSmooth = true;
+			}
+			else
+			{
+				const float follow{ 1.0f - expf(-dt * 22.0f) };
+				smoothCenter.x += (targetPos.x - smoothCenter.x) * follow;
+				smoothCenter.y += (targetPos.y - smoothCenter.y) * follow;
+				smoothCenter.z += (targetPos.z - smoothCenter.z) * follow;
+			}
+
+			const float predict{ 0.04f };
+			const RBX::Vector3 center{
+				smoothCenter.x + targetVel.x * predict,
+				smoothCenter.y + targetVel.y * predict,
+				smoothCenter.z + targetVel.z * predict
+			};
+
 			const RBX::Vector3 newPos{
-				targetPos.x + s * radius,
-				targetPos.y,
-				targetPos.z + c * radius
+				center.x + s * radius,
+				center.y,
+				center.z + c * radius
 			};
 			const RBX::Vector3 vel{
 				targetVel.x + c * radius * omega,
@@ -1533,7 +1590,7 @@ int main()
 				targetVel.z - s * radius * omega
 			};
 
-			RBX::Vector3 fwd{ targetPos.x - newPos.x, 0.0f, targetPos.z - newPos.z };
+			RBX::Vector3 fwd{ center.x - newPos.x, 0.0f, center.z - newPos.z };
 			const float fwdLen{ sqrtf(fwd.x * fwd.x + fwd.z * fwd.z) };
 			if (fwdLen > 0.0001f)
 			{
@@ -1556,11 +1613,29 @@ int main()
 			lookRot.data[5] = 0.0f;
 			lookRot.data[8] = -fwd.z;
 
-			RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
-			RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), vel);
-			RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)primitive + Offsets::Rotation), lookRot);
+			const RBX::Vector3 zeroSpin{ 0.0f, 0.0f, 0.0f };
+			for (int burst = 0; burst < 3; ++burst)
+			{
+				RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)primitive + Offsets::Rotation), lookRot);
+				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
+				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), vel);
+				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + offsets::Primitive::RotationVelocity), zeroSpin);
+			}
 
-			Sleep(1);
+			LARGE_INTEGER deadline{};
+			deadline.QuadPart = now.QuadPart + (freq.QuadPart / 500);
+			for (;;)
+			{
+				LARGE_INTEGER n{};
+				QueryPerformanceCounter(&n);
+				if (n.QuadPart >= deadline.QuadPart)
+					break;
+				const double left{ static_cast<double>(deadline.QuadPart - n.QuadPart) / static_cast<double>(freq.QuadPart) };
+				if (left > 0.0015)
+					Sleep(1);
+				else
+					Sleep(0);
+			}
 		}
 	}).detach();
 
