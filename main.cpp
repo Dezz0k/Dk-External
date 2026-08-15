@@ -13,6 +13,10 @@
 #include <mutex>
 #include <cstdint>
 #include <vector>
+#include <cctype>
+#include <sstream>
+#include <ctime>
+#include <wininet.h>
 
 #include "resource.h"
 
@@ -397,6 +401,94 @@ static void DrawOutlinedText(ImDrawList* drawList, ImVec2 pos, const char* text,
 }
 
 static constexpr float kSmiteTagSlope = 89.137f;
+static constexpr const char* kDkPresenceUrl = "https://ntfy.sh/dk-external-users-dvcf1EcOCE";
+static constexpr ULONGLONG kDkPresenceTtlMs = 70000ULL;
+
+static std::mutex gDkMu;
+static std::unordered_map<int64_t, ULONGLONG> gDkIds;
+static std::unordered_map<std::string, ULONGLONG> gDkNames;
+
+static std::string LowerCopy(std::string s)
+{
+	for (char& ch : s)
+		ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+	return s;
+}
+
+static void DkNoteUser(int64_t userId, const std::string& name)
+{
+	const ULONGLONG t{ GetTickCount64() };
+	std::lock_guard<std::mutex> lock(gDkMu);
+	if (userId > 0)
+		gDkIds[userId] = t;
+	if (!name.empty())
+		gDkNames[LowerCopy(name)] = t;
+}
+
+static bool DkIsPresent(int64_t userId, const std::string& name)
+{
+	const ULONGLONG now{ GetTickCount64() };
+	std::lock_guard<std::mutex> lock(gDkMu);
+	if (userId > 0)
+	{
+		const auto it{ gDkIds.find(userId) };
+		if (it != gDkIds.end() && now - it->second < kDkPresenceTtlMs)
+			return true;
+	}
+	if (!name.empty())
+	{
+		const auto it{ gDkNames.find(LowerCopy(name)) };
+		if (it != gDkNames.end() && now - it->second < kDkPresenceTtlMs)
+			return true;
+	}
+	return false;
+}
+
+static bool HttpPostText(const char* url, const std::string& body)
+{
+	HINTERNET net{ InternetOpenA("DkExternalPresence/1.0", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0) };
+	if (!net)
+		return false;
+
+	URL_COMPONENTSA comps{};
+	comps.dwStructSize = sizeof(comps);
+	char host[256]{};
+	char path[1024]{};
+	comps.lpszHostName = host;
+	comps.dwHostNameLength = sizeof(host);
+	comps.lpszUrlPath = path;
+	comps.dwUrlPathLength = sizeof(path);
+	if (!InternetCrackUrlA(url, 0, 0, &comps))
+	{
+		InternetCloseHandle(net);
+		return false;
+	}
+
+	HINTERNET conn{ InternetConnectA(net, host, comps.nPort ? comps.nPort : INTERNET_DEFAULT_HTTPS_PORT, nullptr, nullptr, INTERNET_SERVICE_HTTP, 0, 0) };
+	if (!conn)
+	{
+		InternetCloseHandle(net);
+		return false;
+	}
+
+	const char* acceptTypes[]{ "*/*", nullptr };
+	HINTERNET req{ HttpOpenRequestA(conn, "POST", path, nullptr, nullptr, acceptTypes,
+		INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE, 0) };
+	if (!req)
+	{
+		InternetCloseHandle(conn);
+		InternetCloseHandle(net);
+		return false;
+	}
+
+	const char* headers{ "Content-Type: text/plain\r\n" };
+	const BOOL ok{ HttpSendRequestA(req, headers, static_cast<DWORD>(strlen(headers)),
+		(LPVOID)body.data(), static_cast<DWORD>(body.size())) };
+	InternetCloseHandle(req);
+	InternetCloseHandle(conn);
+	InternetCloseHandle(net);
+	return ok == TRUE;
+}
 
 static void TagSmiteUser(RBX::Instance humanoid)
 {
@@ -417,6 +509,9 @@ static bool PlayerIsSmiteUser(RBX::Instance player)
 {
 	if (!player.address)
 		return false;
+	const std::string name{ player.name() };
+	if (DkIsPresent(ReadPlayerUserId(player), name))
+		return true;
 	RBX::Instance mi{ player.getModelInstance() };
 	return IsSmiteUser(mi.findFirstChild("Humanoid"));
 }
@@ -440,7 +535,7 @@ static bool HttpGetBytes(const char* url, std::string& out)
 	HINTERNET net{ InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0) };
 	if (!net) return false;
 	HINTERNET req{ InternetOpenUrlA(net, url, NULL, 0,
-		INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0) };
+		INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE, 0) };
 	if (!req)
 	{
 		InternetCloseHandle(net);
@@ -931,7 +1026,7 @@ static void PushGui(const SkechStyle::DemoState& st)
 
 int main()
 {
-	SetConsoleTitleA("Dk External v1.2.2");
+	SetConsoleTitleA("Dk External v1.2.3");
 
 	// Force latest GitHub release before anything else — old builds cannot continue.
 	{
@@ -1073,16 +1168,6 @@ int main()
 
 	int monitorWidth{ GetSystemMetrics(SM_CXSCREEN) };
 	int monitorHeight{ GetSystemMetrics(SM_CYSCREEN) };
-
-	// orbit vars
-	int radius{ 8 };
-	int eclipse{ 1 };
-
-	double rotspeed{ 3.14159265358979323846 * 2 / 1 };
-	eclipse = eclipse * radius;
-
-	double rot{ 0 };
-	// -------------
 
 	Renderer renderer;
 	renderer.Init();
@@ -1345,6 +1430,202 @@ int main()
 			RBX::Memory::write<RBX::Vector2>((void*)((uintptr_t)inputObject.address + Offsets::MousePosition), silent_targetPos);
 			RBX::Memory::write<RBX::Vector2>((void*)((uintptr_t)inputObject.address + Offsets::MousePosition), silent_targetPos);
 			RBX::Memory::write<RBX::Vector2>((void*)((uintptr_t)inputObject.address + Offsets::MousePosition), silent_targetPos);
+		}
+	}).detach();
+
+	std::thread([&]() {
+		bool wasOrbit{ false };
+		bool savedPlatformStand{ false };
+		float angle{ 0.0f };
+		char cachedName[128]{};
+		void* cachedTargetPrim{ nullptr };
+		void* cachedLocalPrim{ nullptr };
+		ULONGLONG lastTargetRefresh{ 0 };
+		LARGE_INTEGER freq{};
+		LARGE_INTEGER last{};
+		QueryPerformanceFrequency(&freq);
+		QueryPerformanceCounter(&last);
+
+		while (true)
+		{
+			if (!Settings::orbitEnabled)
+			{
+				if (wasOrbit && humanoid.address)
+					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), savedPlatformStand);
+				wasOrbit = false;
+				cachedName[0] = '\0';
+				cachedTargetPrim = nullptr;
+				cachedLocalPrim = nullptr;
+				QueryPerformanceCounter(&last);
+				Sleep(40);
+				continue;
+			}
+
+			LARGE_INTEGER now{};
+			QueryPerformanceCounter(&now);
+			float dt{ static_cast<float>(now.QuadPart - last.QuadPart) / static_cast<float>(freq.QuadPart) };
+			last = now;
+			if (dt < 0.0f)
+				dt = 0.0f;
+			if (dt > 0.05f)
+				dt = 0.05f;
+
+			if (!wasOrbit)
+			{
+				angle = 0.0f;
+				lastTargetRefresh = 0;
+				if (humanoid.address)
+				{
+					savedPlatformStand = RBX::Memory::read<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand));
+					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), true);
+				}
+			}
+			wasOrbit = true;
+
+			if (Settings::othersRobloxPlr[0] == '\0')
+			{
+				Settings::orbitEnabled = false;
+				Sleep(1);
+				continue;
+			}
+
+			const ULONGLONG nowMs{ GetTickCount64() };
+			if (nowMs - lastTargetRefresh > 120ULL || strcmp(cachedName, Settings::othersRobloxPlr) != 0)
+			{
+				strncpy_s(cachedName, Settings::othersRobloxPlr, _TRUNCATE);
+				lastTargetRefresh = nowMs;
+
+				RBX::Instance plr{ players.findFirstChild(Settings::othersRobloxPlr) };
+				RBX::Instance plrMi{ plr.address ? plr.getModelInstance() : RBX::Instance(nullptr) };
+				RBX::Instance plrHrp{ plrMi.address ? plrMi.findFirstChild("HumanoidRootPart") : RBX::Instance(nullptr) };
+				cachedTargetPrim = plrHrp.address ? plrHrp.getPrimitive() : nullptr;
+				cachedLocalPrim = hrp.address ? hrp.getPrimitive() : nullptr;
+			}
+
+			void* targetPrim{ cachedTargetPrim };
+			void* primitive{ cachedLocalPrim };
+			if (!targetPrim || !primitive)
+			{
+				Sleep(1);
+				continue;
+			}
+
+			const float omega{ 6.28318530718f * Settings::orbitSpeedMultiplier };
+			angle += omega * dt;
+			if (angle > 6.28318530718f)
+				angle -= 6.28318530718f;
+
+			const float radius{ 8.0f * Settings::orbitDistanceMultiplier };
+			const float s{ sinf(angle) };
+			const float c{ cosf(angle) };
+
+			const RBX::Vector3 targetPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
+			const RBX::Vector3 targetVel{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Velocity)) };
+
+			const RBX::Vector3 newPos{
+				targetPos.x + s * radius,
+				targetPos.y,
+				targetPos.z + c * radius
+			};
+			const RBX::Vector3 vel{
+				targetVel.x + c * radius * omega,
+				targetVel.y,
+				targetVel.z - s * radius * omega
+			};
+
+			RBX::Vector3 fwd{ targetPos.x - newPos.x, 0.0f, targetPos.z - newPos.z };
+			const float fwdLen{ sqrtf(fwd.x * fwd.x + fwd.z * fwd.z) };
+			if (fwdLen > 0.0001f)
+			{
+				fwd.x /= fwdLen;
+				fwd.z /= fwdLen;
+			}
+			else
+			{
+				fwd = { 0.0f, 0.0f, 1.0f };
+			}
+			const RBX::Vector3 right{ fwd.z, 0.0f, -fwd.x };
+			RBX::Matrix3 lookRot{};
+			lookRot.data[0] = right.x;
+			lookRot.data[3] = right.y;
+			lookRot.data[6] = right.z;
+			lookRot.data[1] = 0.0f;
+			lookRot.data[4] = 1.0f;
+			lookRot.data[7] = 0.0f;
+			lookRot.data[2] = -fwd.x;
+			lookRot.data[5] = 0.0f;
+			lookRot.data[8] = -fwd.z;
+
+			RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
+			RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), vel);
+			RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)primitive + Offsets::Rotation), lookRot);
+
+			Sleep(1);
+		}
+	}).detach();
+
+	std::thread([&]() {
+		ULONGLONG lastPost{ 0 };
+		ULONGLONG lastPull{ 0 };
+		while (true)
+		{
+			const ULONGLONG now{ GetTickCount64() };
+
+			if (now - lastPost > 12000ULL)
+			{
+				lastPost = now;
+				const int64_t uid{ ReadPlayerUserId(localPlayer) };
+				const std::string name{ localPlayer.address ? localPlayer.name() : std::string() };
+				if (uid > 0 || !name.empty())
+				{
+					DkNoteUser(uid, name);
+					int64_t placeId{ 0 };
+					if (dataModel.address)
+						placeId = RBX::Memory::read<int64_t>((void*)((uintptr_t)dataModel.address + Offsets::PlaceId));
+					std::ostringstream msg;
+					msg << "DK|" << placeId << "|" << uid << "|" << name;
+					HttpPostText(kDkPresenceUrl, msg.str());
+				}
+			}
+
+			if (now - lastPull > 8000ULL)
+			{
+				lastPull = now;
+				std::string body;
+				if (HttpGetBytes("https://ntfy.sh/dk-external-users-dvcf1EcOCE/json?poll=1&since=90s", body))
+				{
+					std::istringstream ss(body);
+					std::string line;
+					while (std::getline(ss, line))
+					{
+						if (line.empty() || line[0] != '{')
+							continue;
+						try
+						{
+							json j = json::parse(line);
+							if (j.value("event", "") != "message")
+								continue;
+							const std::string msg{ j.value("message", "") };
+							if (msg.rfind("DK|", 0) != 0)
+								continue;
+							const size_t p1{ msg.find('|', 3) };
+							if (p1 == std::string::npos)
+								continue;
+							const size_t p2{ msg.find('|', p1 + 1) };
+							if (p2 == std::string::npos)
+								continue;
+							const int64_t uid{ _strtoi64(msg.c_str() + p1 + 1, nullptr, 10) };
+							const std::string name{ msg.substr(p2 + 1) };
+							DkNoteUser(uid, name);
+						}
+						catch (...)
+						{
+						}
+					}
+				}
+			}
+
+			Sleep(400);
 		}
 	}).detach();
 
@@ -3057,8 +3338,7 @@ int main()
 				if (player.className() != "Player")
 					continue;
 				RBX::Instance model{ player.getModelInstance() };
-				RBX::Instance plrHum{ model.findFirstChild("Humanoid") };
-				if (!IsSmiteUser(plrHum))
+				if (!PlayerIsSmiteUser(player))
 					continue;
 				RBX::Instance head{ model.findFirstChild("Head") };
 				if (!head.address)
@@ -3135,7 +3415,7 @@ int main()
 			RBX::Instance targetMi{ targetPlr.getModelInstance() };
 			RBX::Instance targetHrp{ targetMi.findFirstChild("HumanoidRootPart") };
 			RBX::Instance targetHum{ targetMi.findFirstChild("Humanoid") };
-			void* targetPrim{ (targetHrp.address && IsSmiteUser(targetHum)) ? targetHrp.getPrimitive() : nullptr };
+			void* targetPrim{ (targetHrp.address && PlayerIsSmiteUser(targetPlr)) ? targetHrp.getPrimitive() : nullptr };
 
 			if (targetPrim)
 			{
@@ -3501,26 +3781,6 @@ int main()
 				}
 			}
 			behindPrevDown = behindDown;
-		}
-
-		if (Settings::orbitEnabled)
-		{
-			RBX::Instance plr{ players.findFirstChild(Settings::othersRobloxPlr) };
-			RBX::Instance plrMi{ plr.getModelInstance() };
-			RBX::Instance plrHrp{ plrMi.findFirstChild("HumanoidRootPart") };
-
-			void* primitive{ hrp.getPrimitive() };
-
-			rot += 0.016f * rotspeed * Settings::orbitSpeedMultiplier;
-
-			const float orbitR{ static_cast<float>(radius) * Settings::orbitDistanceMultiplier };
-			double offsetAngle{ rot };
-			RBX::Vector3 offset{ static_cast<float>(sin(offsetAngle) * orbitR), 0.0f, static_cast<float>(cos(offsetAngle) * orbitR) };
-
-			RBX::Vector3 targetPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)plrHrp.getPrimitive() + Offsets::Position))};
-			RBX::Vector3 newPos{ targetPos.x + offset.x, targetPos.y + offset.y, targetPos.z + offset.z };
-
-			RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
 		}
 
 		renderer.EndRender();
