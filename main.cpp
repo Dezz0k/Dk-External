@@ -931,7 +931,7 @@ static void PushGui(const SkechStyle::DemoState& st)
 
 int main()
 {
-	SetConsoleTitleA("Dk External v1.2.1");
+	SetConsoleTitleA("Dk External v1.2.2");
 
 	// Force latest GitHub release before anything else — old builds cannot continue.
 	{
