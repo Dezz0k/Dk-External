@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstdint>
 #include <ctime>
 #include <fstream>
 #include <functional>
@@ -15,6 +16,7 @@
 
 #include "../imgui/imgui.h"
 #include "../imgui/imgui_internal.h"
+#include "utils.hpp"
 
 namespace SkechStyle
 {
@@ -418,7 +420,7 @@ namespace SkechStyle
 		return changed;
 	}
 
-	inline bool ComboRow(const char* label, int* current, const char* const items[], int count)
+	inline bool ComboRow(const char* label, int* current, const char* const* items, int count)
 	{
 		ImGui::PushID(label);
 		ImGui::TextColored(ColTextDim(), "%s", label);
@@ -437,12 +439,16 @@ namespace SkechStyle
 		return changed;
 	}
 
-	inline void HotkeyRow(const char* label, const char* keyName)
+	inline void BindPickerRow(const char* label, int* key)
 	{
+		ImGui::PushID(label);
 		ImGui::AlignTextToFramePadding();
-		ImGui::TextUnformatted(label);
-		ImGui::SameLine(RightAlignX(ImGui::CalcTextSize(keyName).x));
-		ImGui::TextColored(ColTextDim(), "%s", keyName);
+		ImGui::TextColored(ColTextDim(), "%s", label);
+		ImGui::SameLine(RightAlignX(102.0f));
+		ImGui::Hotkey(key, ImVec2(100.0f, 22.0f));
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Click to bind. Backspace clears.");
+		ImGui::PopID();
 	}
 
 	inline void ColorRow(const char* label, float col[4])
@@ -650,8 +656,6 @@ namespace SkechStyle
 	{
 		bool menuVisible = true;
 		int nav = 0;
-		int selectedFriend = -1;
-
 		bool friendsWin = false;
 		bool themeWin = false;
 		bool adminWin = false;
@@ -666,14 +670,12 @@ namespace SkechStyle
 		float aimbotPredictionX = 5.0f;
 		float aimbotPredictionY = 5.0f;
 		int aimbotLockPart = 0;
-		char aimbotKeyLabel[32] = "Mouse 2";
 		ImVec4 aimbotFovColor{ 1, 0, 0, 1 };
 
 		bool triggerbotEnabled = false;
 		bool triggerbotIndicateClicking = false;
 		float triggerbotDetectionRadius = 20.0f;
 		int triggerbotTriggerPart = 0;
-		char triggerbotKeyLabel[32] = "Mouse 2";
 
 		bool silentAimEnabled = false;
 		int silentAimLockPart = 0;
@@ -693,19 +695,24 @@ namespace SkechStyle
 		ImVec4 tracerColor{ 1, 1, 1, 1 };
 
 		char configFileName[64] = "";
+		static constexpr int MaxConfigs = 48;
+		char configList[MaxConfigs][64]{};
+		const char* configListPtrs[MaxConfigs]{};
+		int configCount = 0;
+		int configIdx = 0;
+		bool requestRefreshConfigs = true;
 		bool rbxWindowNeedsToBeSelected = true;
 		int mainLoopDelay = 0;
-		char toggleGuiKeyLabel[32] = "INSERT";
+		bool requestExit = false;
+		bool espPreviewOpened = false;
 
 		float tpX = 0, tpY = 0, tpZ = 0;
 		float orbitDistanceMultiplier = 1.0f;
 		float orbitSpeedMultiplier = 1.0f;
 		bool flyEnabled = false;
-		char flyKeyLabel[32] = "None";
 		int flyMode = 0;
 		float flySpeed = 16.0f;
 		bool behindPlayerEnabled = true;
-		char behindPlayerKeyLabel[32] = "None";
 		float behindPlayerDistance = 4.0f;
 		float behindPlayerFOV = 250.0f;
 		bool noclipEnabled = false;
@@ -717,6 +724,8 @@ namespace SkechStyle
 
 		int slot1 = 0, slot2 = 0, slot3 = 0;
 		int gamblingBalance = 500;
+		int slotBet = 10;
+		int minesBet = 10;
 		int gamblingLastYmd = 0;
 		bool walletLoaded = false;
 		bool autoSaveEnabled = false;
@@ -727,6 +736,8 @@ namespace SkechStyle
 		bool hostExtraWindows = false; // true = extra windows drawn by host
 		void* logoTex = nullptr;
 		ImVec2 logoSize{ 0, 0 };
+		void* selectedAvatarTex = nullptr;
+		ImVec2 selectedAvatarSize{ 0, 0 };
 		float menuX = -1.0f;
 		float menuY = -1.0f;
 		bool slotSpinning = false;
@@ -742,6 +753,7 @@ namespace SkechStyle
 		int bjPlayerCount = 0;
 		int bjDealerCount = 0;
 		int bjPhase = 0; // 0 idle, 1 playing, 2 stand/reveal, 3 done
+		bool bjSettled = true;
 		char bjMsg[64] = "Place a bet and Deal.";
 
 		// Mines
@@ -757,13 +769,57 @@ namespace SkechStyle
 
 		bool keybindListVisible = false;
 		char themeFileName[64] = "";
+
+		bool highEndVisuals = true;
+		bool sessionBoost = false;
+
+		static constexpr int MaxLivePlayers = 64;
+		struct LivePlayerEntry
+		{
+			char name[64];
+			int64_t userId = 0;
+			bool isFriend = false;
+			bool isLocal = false;
+			bool isSmite = false;
+		};
+		LivePlayerEntry livePlayers[MaxLivePlayers]{};
+		int livePlayerCount = 0;
+		int selectedLivePlayer = -1;
+
+		enum class PlayerListAction : int
+		{
+			None = 0,
+			Spectate,
+			StopSpectate,
+			Teleport,
+			Orbit,
+			StopOrbit,
+			ToggleFriend,
+			ToggleEnemy
+		};
+		PlayerListAction playerAction = PlayerListAction::None;
+		char playerActionTarget[64]{};
+
+		enum class TpAction : int { None = 0, SetFromLocal, Clear, Teleport };
+		TpAction tpAction = TpAction::None;
+
+		int flyKey = 0;
+		int behindPlayerKey = 0;
+		int walkSpeedKey = 0;
+		int jumpPowerKey = 0;
+		int aimbotKey = 2;
+		int triggerbotKey = 0;
+		int toggleGuiKey = 45;
+
+		int adminPlayerIdx = 0;
+		const char* adminPlayerNames[MaxLivePlayers + 1]{ "Select player" };
+		int adminPlayerCount = 1;
 		bool ownerBring = false, ownerFollow = false, ownerSpin = false;
 		bool ownerFreeze = false, ownerFling = false, ownerJumpOnly = false;
 
 		float contentFade = 1.0f;
 		float backGlow = 0.0f;
 		int lastNav = 0;
-		bool relationsLoaded = false;
 	};
 
 	inline int TodayYmd()
@@ -940,30 +996,21 @@ namespace SkechStyle
 		static const char* espTypes[]{ "Square", "Skeleton", "Corners" };
 		static const char* tracerTypes[]{ "Mouse", "Corner", "Top", "Bottom" };
 		static const char* flyModes[]{ "Default", "CFrame", "Position", "Velocity", "Hybrid", "PlatformStand", "Anchored" };
-		static const char* fakePlayers[]{ "Select player", "Player1", "Player2", "Player3" };
-		static int fakePlayerIdx = 0;
-		static int adminPlayerIdx = 0;
-		static int configIdx = 0;
-		static const char* fakeConfigs[]{ "Select config", "legit.json", "rage.json" };
 
-		static FriendEntry friends[3]{
-			{ "CoolDisplay", "Player1", Relation::None },
-			{ "ShadowKid", "Player2", Relation::Friend },
-			{ "NovaBlade", "Player3", Relation::None },
-		};
-		if (!st.relationsLoaded)
-		{
-			LoadRelations(friends, IM_ARRAYSIZE(friends));
-			st.relationsLoaded = true;
-		}
 		TickDailyWallet(st);
 
 		if (st.handleInsert && ImGui::IsKeyPressed(ImGuiKey_Insert, false))
 			st.menuVisible = !st.menuVisible;
 
 		if (st.nav != st.lastNav) { st.contentFade = 0.0f; st.lastNav = st.nav; }
-		st.contentFade = Approach(st.contentFade, 1.0f, 18.0f);
-		st.backGlow = Approach(st.backGlow, ImClamp(CountActiveFeatures(st) * 0.18f, 0.0f, 0.55f), 14.0f);
+		if (st.highEndVisuals)
+			st.contentFade = Approach(st.contentFade, 1.0f, 18.0f);
+		else
+			st.contentFade = 1.0f;
+		if (st.highEndVisuals)
+			st.backGlow = Approach(st.backGlow, ImClamp(CountActiveFeatures(st) * 0.18f, 0.0f, 0.55f), 14.0f);
+		else
+			st.backGlow = 0.0f;
 
 		const ImGuiViewport* vp = ImGui::GetMainViewport();
 		ImDrawList* bg = ImGui::GetBackgroundDrawList();
@@ -990,7 +1037,7 @@ namespace SkechStyle
 			ImGui::SameLine(0, 18);
 			if (BottomBarButton("explorer", Icon::Explorer, "Explorer", st.explorerWin)) st.explorerWin = !st.explorerWin;
 			ImGui::SameLine(0, 18);
-			if (BottomBarButton("friends", Icon::Users, "Friends List", st.friendsWin)) st.friendsWin = !st.friendsWin;
+			if (BottomBarButton("friends", Icon::Users, "Players", st.friendsWin)) st.friendsWin = !st.friendsWin;
 			ImGui::SameLine(0, 18);
 			if (BottomBarButton("theme", Icon::Theme, "Theme Changer", st.themeWin)) st.themeWin = !st.themeWin;
 			ImGui::SameLine(0, 18);
@@ -1000,17 +1047,17 @@ namespace SkechStyle
 			ImGui::PopStyleVar(3);
 		}
 
-		auto drawFriendsBody = [&]()
+		auto drawPlayerListBody = [&]()
 		{
-			ImGui::TextWrapped("Check = friend (green ESP).  X = enemy.  Saved to disk automatically.");
+			ImGui::TextWrapped("Click a player for actions. Friend = green ESP / ignored by aim.");
 			ImGui::Separator();
 			const float listW = ImGui::GetContentRegionAvail().x * 0.46f;
 			ImGui::BeginChild("##flist", ImVec2(listW, -1), ImGuiChildFlags_Borders);
-			for (int i = 0; i < IM_ARRAYSIZE(friends); ++i)
+			for (int i = 0; i < st.livePlayerCount; ++i)
 			{
-				FriendEntry& f = friends[i];
+				const DemoState::LivePlayerEntry& f = st.livePlayers[i];
 				ImGui::PushID(i);
-				const bool selected = st.selectedFriend == i;
+				const bool selected = st.selectedLivePlayer == i;
 				const float rowH = 54.0f;
 				const float rowW = ImGui::GetContentRegionAvail().x;
 				const ImVec2 rowPos = ImGui::GetCursorScreenPos();
@@ -1019,87 +1066,99 @@ namespace SkechStyle
 				if (selected) rdl->AddRectFilled(rowPos, ImVec2(rowPos.x + rowW, rowPos.y + rowH), U32A(ColAccent(), 0.12f), 6.0f);
 				rdl->AddRect(rowPos, ImVec2(rowPos.x + rowW, rowPos.y + rowH), U32(ColOuter()), 6.0f, 0, 1.0f);
 
-				const ImU32 avCol = f.relation == Relation::Friend ? U32(ColFriend())
-					: (f.relation == Relation::Enemy ? U32(ColEnemy()) : U32(ColTextDim()));
-				DrawPlaceholderAvatar(rdl, ImVec2(rowPos.x + 26.0f, rowPos.y + rowH * 0.5f), 34.0f, avCol);
-				rdl->AddText(ImVec2(rowPos.x + 52.0f, rowPos.y + 10.0f), U32(ColTextOn()), f.displayName);
-				char sub[96]; ImFormatString(sub, IM_ARRAYSIZE(sub), "@%s", f.userName);
-				rdl->AddText(ImVec2(rowPos.x + 52.0f, rowPos.y + 28.0f), U32(ColTextDim()), sub);
-
-				// Relation cycle button: none -> friend -> enemy -> none
-				ImGui::SetCursorScreenPos(ImVec2(rowPos.x + rowW - 30.0f, rowPos.y + 15.0f));
-				const char* mark = f.relation == Relation::Friend ? "[✓]" : (f.relation == Relation::Enemy ? "[X]" : "[ ]");
-				if (ImGui::SmallButton(mark))
+				const ImU32 avCol = f.isLocal ? U32(ColAccent())
+					: (f.isFriend ? U32(ColFriend()) : U32(ColTextDim()));
+				if (selected && st.selectedAvatarTex)
 				{
-					f.relation = (Relation)(((int)f.relation + 1) % 3);
-					SaveRelations(friends, IM_ARRAYSIZE(friends));
+					const ImVec2 avMin(rowPos.x + 8.0f, rowPos.y + 8.0f);
+					ImGui::GetWindowDrawList()->AddImage(ImTextureRef((ImTextureID)(size_t)st.selectedAvatarTex), avMin, ImVec2(avMin.x + 38.0f, avMin.y + 38.0f));
 				}
+				else
+					DrawPlaceholderAvatar(rdl, ImVec2(rowPos.x + 26.0f, rowPos.y + rowH * 0.5f), 34.0f, avCol);
+				rdl->AddText(ImVec2(rowPos.x + 52.0f, rowPos.y + 10.0f), U32(ColTextOn()), f.name);
+				if (f.isLocal)
+					rdl->AddText(ImVec2(rowPos.x + 52.0f, rowPos.y + 28.0f), U32(ColTextDim()), "(you)");
+				else if (f.isSmite)
+					rdl->AddText(ImVec2(rowPos.x + 52.0f, rowPos.y + 28.0f), U32(ColAccent()), "using DK");
+				else if (f.isFriend)
+					rdl->AddText(ImVec2(rowPos.x + 52.0f, rowPos.y + 28.0f), U32(ColFriend()), "friend");
 
 				ImGui::SetCursorScreenPos(rowPos);
-				if (ImGui::InvisibleButton("##row", ImVec2(rowW - 38.0f, rowH)))
-					st.selectedFriend = i;
+				if (ImGui::InvisibleButton("##row", ImVec2(rowW, rowH)))
+					st.selectedLivePlayer = i;
 				ImGui::SetCursorScreenPos(ImVec2(rowPos.x, rowPos.y + rowH + 8.0f));
 				ImGui::Dummy(ImVec2(0, 0));
 				ImGui::PopID();
 			}
+			if (st.livePlayerCount == 0)
+				ImGui::TextColored(ColTextDim(), "No players in server.");
 			ImGui::EndChild();
 
 			ImGui::SameLine();
 			ImGui::BeginChild("##fdetail", ImVec2(0, -1), ImGuiChildFlags_Borders);
-			if (st.selectedFriend >= 0 && st.selectedFriend < IM_ARRAYSIZE(friends))
+			if (st.selectedLivePlayer >= 0 && st.selectedLivePlayer < st.livePlayerCount)
 			{
-				FriendEntry& f = friends[st.selectedFriend];
+				const DemoState::LivePlayerEntry& f = st.livePlayers[st.selectedLivePlayer];
 				ImDrawList* ddl = ImGui::GetWindowDrawList();
 				const ImVec2 cp = ImGui::GetCursorScreenPos();
-				const ImU32 avCol = f.relation == Relation::Friend ? U32(ColFriend())
-					: (f.relation == Relation::Enemy ? U32(ColEnemy()) : U32(ColAccent()));
-				DrawPlaceholderAvatar(ddl, ImVec2(cp.x + 36.0f, cp.y + 36.0f), 64.0f, avCol);
-				ddl->AddText(ImGui::GetFont(), 18.0f, ImVec2(cp.x + 84.0f, cp.y + 16.0f), U32(ColTextOn()), f.displayName);
-				char uname[96]; ImFormatString(uname, IM_ARRAYSIZE(uname), "@%s", f.userName);
-				ddl->AddText(ImVec2(cp.x + 84.0f, cp.y + 40.0f), U32(ColTextDim()), uname);
-				const char* relTxt = f.relation == Relation::Friend ? "Friend"
-					: (f.relation == Relation::Enemy ? "Enemy" : "None");
-				ddl->AddText(ImVec2(cp.x + 84.0f, cp.y + 58.0f),
-					f.relation == Relation::Enemy ? U32(ColEnemy()) : (f.relation == Relation::Friend ? U32(ColFriend()) : U32(ColTextDim())),
-					relTxt);
+				const ImU32 avCol = f.isFriend ? U32(ColFriend()) : U32(ColAccent());
+				if (st.selectedAvatarTex)
+				{
+					ddl->AddImage(ImTextureRef((ImTextureID)(size_t)st.selectedAvatarTex), ImVec2(cp.x + 8.0f, cp.y + 8.0f), ImVec2(cp.x + 80.0f, cp.y + 80.0f));
+				}
+				else
+					DrawPlaceholderAvatar(ddl, ImVec2(cp.x + 36.0f, cp.y + 36.0f), 64.0f, avCol);
+				ddl->AddText(ImGui::GetFont(), 18.0f, ImVec2(cp.x + 92.0f, cp.y + 16.0f), U32(ColTextOn()), f.name);
+				ddl->AddText(ImVec2(cp.x + 92.0f, cp.y + 40.0f), U32(ColTextDim()), f.isLocal ? "Local player" : "Roblox character");
+				if (f.isSmite)
+					ddl->AddText(ImVec2(cp.x + 92.0f, cp.y + 58.0f), U32(ColAccent()), "Using this");
+				else if (f.isFriend)
+					ddl->AddText(ImVec2(cp.x + 92.0f, cp.y + 58.0f), U32(ColFriend()), "Friend");
 
 				ImGui::Dummy(ImVec2(0, 88));
-				ImGui::TextColored(ColAccent(), "Options");
-				const float half = (ImGui::GetContentRegionAvail().x - 8.0f) * 0.5f;
-				ImGui::BeginGroup();
-				ImGui::Button("tp", ImVec2(half * 0.48f, 0)); ImGui::SameLine();
-				ImGui::Button("orbit", ImVec2(half * 0.48f, 0));
-				ImGui::Button("locate", ImVec2(half * 0.48f, 0)); ImGui::SameLine();
-				ImGui::Button("lock", ImVec2(half * 0.48f, 0));
-				ImGui::EndGroup();
-				ImGui::SameLine(0, 8);
-				ImGui::BeginGroup();
-				if (ImGui::Button(f.relation == Relation::Friend ? "unfriend" : "friend", ImVec2(half, 0)))
+				if (!f.isLocal)
 				{
-					f.relation = f.relation == Relation::Friend ? Relation::None : Relation::Friend;
-					SaveRelations(friends, IM_ARRAYSIZE(friends));
+					ImGui::TextColored(ColAccent(), "Actions");
+					if (FullButton("Orbit"))
+					{
+						st.playerAction = DemoState::PlayerListAction::Orbit;
+						strncpy_s(st.playerActionTarget, f.name, _TRUNCATE);
+					}
+					if (FullButton("Spectate"))
+					{
+						st.playerAction = DemoState::PlayerListAction::Spectate;
+						strncpy_s(st.playerActionTarget, f.name, _TRUNCATE);
+					}
+					if (FullButton("Stop spectating"))
+						st.playerAction = DemoState::PlayerListAction::StopSpectate;
+					if (FullButton("Stop orbit"))
+						st.playerAction = DemoState::PlayerListAction::StopOrbit;
+					if (FullButton("Teleport"))
+					{
+						st.playerAction = DemoState::PlayerListAction::Teleport;
+						strncpy_s(st.playerActionTarget, f.name, _TRUNCATE);
+					}
+					ImGui::Spacing();
+					if (FullButton(f.isFriend ? "Remove friend" : "Add friend"))
+					{
+						st.playerAction = DemoState::PlayerListAction::ToggleFriend;
+						strncpy_s(st.playerActionTarget, f.name, _TRUNCATE);
+					}
 				}
-				if (ImGui::Button(f.relation == Relation::Enemy ? "clear enemy" : "enemy", ImVec2(half, 0)))
-				{
-					f.relation = f.relation == Relation::Enemy ? Relation::None : Relation::Enemy;
-					SaveRelations(friends, IM_ARRAYSIZE(friends));
-				}
-				ImGui::Button("spectate (toggle)", ImVec2(half, 0));
-				ImGui::EndGroup();
-				ImGui::Spacing();
-				FullButton("more info");
+				else
+					ImGui::TextColored(ColTextDim(), "Select another player for actions.");
 			}
 			else
-			{
 				ImGui::TextColored(ColTextDim(), "Select a player.");
-			}
 			ImGui::EndChild();
 		};
 
-		// Floating Extra windows from bottom bar
+		if (!st.hostExtraWindows)
+			DrawFloatingWindow("Players", &st.friendsWin, ImVec2(620, 420), Icon::Users, drawPlayerListBody);
+
+		// Floating Extra windows from bottom bar (host draws explorer/admin/theme/players when attached)
 		if (!st.hostExtraWindows)
 		{
-		DrawFloatingWindow("Friends List", &st.friendsWin, ImVec2(620, 420), Icon::Users, drawFriendsBody);
 		DrawFloatingWindow("Theme Changer", &st.themeWin, ImVec2(320, 180), Icon::Theme, [&]()
 		{
 			ImGui::TextColored(ColTextDim(), "Theme name");
@@ -1117,7 +1176,7 @@ namespace SkechStyle
 			FullButton("Logout key (restart)");
 			ImGui::Separator();
 			ImGui::TextColored(ColAccent(), "[Trolls] CoOwner+");
-			ComboRow("Target player", &adminPlayerIdx, fakePlayers, IM_ARRAYSIZE(fakePlayers));
+			ComboRow("Target player", &st.adminPlayerIdx, st.adminPlayerNames, st.adminPlayerCount);
 			CheckboxRow("Bring to me", &st.ownerBring);
 			CheckboxRow("Follow me", &st.ownerFollow);
 			CheckboxRow("Spin", &st.ownerSpin);
@@ -1127,15 +1186,13 @@ namespace SkechStyle
 		});
 		DrawFloatingWindow("Explorer", &st.explorerWin, ImVec2(420, 480), Icon::Explorer, [&]()
 		{
-			ImGui::TextColored(ColTextDim(), "Workspace");
-			if (ImGui::TreeNode("Players"))
-			{
-				ImGui::BulletText("LocalPlayer");
-				ImGui::BulletText("Player1");
-				ImGui::BulletText("Player2");
-				ImGui::TreePop();
-			}
-			if (ImGui::TreeNode("Lighting")) { ImGui::BulletText("Sky"); ImGui::TreePop(); }
+			ImGui::TextColored(ColTextDim(), "Players");
+			ImGui::BeginChild("##exscroll", ImVec2(0, 0), ImGuiChildFlags_Borders);
+			for (int i = 0; i < st.livePlayerCount; ++i)
+				ImGui::BulletText("%s%s", st.livePlayers[i].name, st.livePlayers[i].isLocal ? " (you)" : "");
+			if (st.livePlayerCount == 0)
+				ImGui::TextDisabled("No players detected.");
+			ImGui::EndChild();
 		});
 		}
 
@@ -1176,7 +1233,7 @@ namespace SkechStyle
 		DrawLogo(dl, wp, st.logoTex, st.logoSize);
 
 		ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
-		ImGui::InvisibleButton("##drag_logo", ImVec2(sidebarW, 68.0f));
+		ImGui::InvisibleButton("##drag_top", ImVec2(ws.x, 40.0f));
 		if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 		{
 			st.menuX += ImGui::GetIO().MouseDelta.x;
@@ -1234,7 +1291,7 @@ namespace SkechStyle
 			SliderRowF("Prediction X", &st.aimbotPredictionX, 0.0f, 20.0f);
 			SliderRowF("Prediction Y", &st.aimbotPredictionY, 0.0f, 20.0f);
 			ColorRow("FOV color", (float*)&st.aimbotFovColor);
-			HotkeyRow("Aimbot key", st.aimbotKeyLabel);
+			BindPickerRow("Aimbot key", &st.aimbotKey);
 			CheckboxRow("Toggle lock", &st.aimbotToggleLock);
 			EndPanel();
 
@@ -1243,7 +1300,7 @@ namespace SkechStyle
 			CheckboxRow("Indicate clicking", &st.triggerbotIndicateClicking);
 			ComboRow("Trigger parts", &st.triggerbotTriggerPart, triggerParts, IM_ARRAYSIZE(triggerParts));
 			SliderRowF("Detection radius", &st.triggerbotDetectionRadius, 1.0f, 100.0f);
-			HotkeyRow("Triggerbot key", st.triggerbotKeyLabel);
+			BindPickerRow("Triggerbot key", &st.triggerbotKey);
 			EndPanel();
 
 			ImGui::SetCursorPos(ImVec2(leftW + gap * 2.0f + rightW, 0));
@@ -1265,7 +1322,8 @@ namespace SkechStyle
 			CheckboxRow("Ignore dead players", &st.espIgnoreDeadPlrs);
 			SliderRowI("ESP distance", &st.espDistance, 0, 500);
 			ColorRow("ESP color", (float*)&st.espColor);
-			FullButton("Preview ESP");
+			if (FullButton("Preview ESP"))
+				st.espPreviewOpened = !st.espPreviewOpened;
 			EndPanel();
 
 			ImGui::SetCursorPos(ImVec2(panelW + gap, 0));
@@ -1282,13 +1340,23 @@ namespace SkechStyle
 			CheckboxRow("Auto save", &st.autoSaveEnabled);
 			if (st.autoSaveEnabled)
 				ImGui::TextColored(ColFriend(), "Saving changes automatically.");
-			ComboRow("Config list", &configIdx, fakeConfigs, IM_ARRAYSIZE(fakeConfigs));
+			if (st.configCount > 0)
+			{
+				if (ComboRow("Config list", &st.configIdx, st.configListPtrs, st.configCount)
+					&& st.configIdx >= 0 && st.configIdx < st.configCount)
+				{
+					strncpy_s(st.configFileName, st.configList[st.configIdx], _TRUNCATE);
+				}
+			}
+			else
+				ImGui::TextColored(ColTextDim(), "No configs yet.");
 			ImGui::TextColored(ColTextDim(), "New config name");
 			ImGui::SetNextItemWidth(-1.0f);
 			ImGui::InputText("##cfgname", st.configFileName, IM_ARRAYSIZE(st.configFileName));
 			if (FullButton("Load config") && st.onLoadConfig) st.onLoadConfig();
 			if (FullButton("Save config") && st.onSaveConfig) st.onSaveConfig();
-			FullButton("Refresh list");
+			if (FullButton("Refresh list"))
+				st.requestRefreshConfigs = true;
 			ImGui::Spacing();
 			ImGui::TextWrapped("Use the bottom Theme button to change themes.");
 			EndPanel();
@@ -1297,52 +1365,68 @@ namespace SkechStyle
 			BeginPanel("General", nullptr, ImVec2(panelW, contentH * 0.7f), Icon::Sliders);
 			CheckboxRow("Roblox window needs to be selected", &st.rbxWindowNeedsToBeSelected);
 			SliderRowI("Main loop delay (ms)", &st.mainLoopDelay, 0, 50);
-			HotkeyRow("Toggle GUI key", st.toggleGuiKeyLabel);
+			BindPickerRow("Toggle GUI key", &st.toggleGuiKey);
+			if (!st.highEndVisuals)
+			{
+				ImGui::Spacing();
+				ImGui::TextColored(ColAccent(), "Low end");
+				if (st.sessionBoost)
+					ImGui::TextColored(ColFriend(), "Boost is on for this launch only.");
+				else
+					ImGui::TextWrapped("Click once to raise CPU priority so aim/ESP stay smoother. Turns off when you close.");
+				if (!st.sessionBoost)
+				{
+					if (FullButton("Boost this session"))
+						st.sessionBoost = true;
+				}
+				else
+				{
+					ImGui::BeginDisabled();
+					FullButton("Boost active");
+					ImGui::EndDisabled();
+				}
+			}
 			ImGui::Spacing();
-			FullButton("Exit");
+			if (FullButton("Exit"))
+				st.requestExit = true;
 			EndPanel();
 		}
 		else if (st.nav == 3)
 		{
-			const float colW = (contentW - gap * 2.0f) / 3.0f;
+			const float colW = (contentW - gap) * 0.5f;
 			const float topH = contentH * 0.58f;
 			const float botH = contentH - topH - gap;
 
 			ImGui::SetCursorPos(ImVec2(0, 0));
-			BeginPanel("Player", nullptr, ImVec2(colW, topH), Icon::Person);
-			ComboRow("Player", &fakePlayerIdx, fakePlayers, IM_ARRAYSIZE(fakePlayers));
-			FullButton("Spectate player");
-			FullButton("Stop spectating");
-			EndPanel();
-
-			ImGui::SetCursorPos(ImVec2(colW + gap, 0));
-			BeginPanel("Teleport / Orbit", nullptr, ImVec2(colW, topH), Icon::Globe);
+			BeginPanel("Teleport", nullptr, ImVec2(colW, topH), Icon::Globe);
 			ImGui::TextColored(ColTextDim(), "X");
 			ImGui::SetNextItemWidth(-1); ImGui::InputFloat("##x", &st.tpX);
 			ImGui::TextColored(ColTextDim(), "Y");
 			ImGui::SetNextItemWidth(-1); ImGui::InputFloat("##y", &st.tpY);
 			ImGui::TextColored(ColTextDim(), "Z");
 			ImGui::SetNextItemWidth(-1); ImGui::InputFloat("##z", &st.tpZ);
-			FullButton("Set coordinates");
-			FullButton("Clear coordinates");
-			FullButton("Teleport to coordinates");
-			FullButton("Teleport to player");
-			FullButton("Orbit player");
-			FullButton("Stop orbiting");
-			SliderRowF("Orbit distance", &st.orbitDistanceMultiplier, 0.25f, 5.0f, "%.2fx");
-			SliderRowF("Orbit speed", &st.orbitSpeedMultiplier, 0.1f, 5.0f, "%.2fx");
+			if (FullButton("Set coordinates"))
+				st.tpAction = DemoState::TpAction::SetFromLocal;
+			if (FullButton("Clear coordinates"))
+				st.tpAction = DemoState::TpAction::Clear;
+			if (FullButton("Teleport to coordinates"))
+				st.tpAction = DemoState::TpAction::Teleport;
+			ImGui::TextDisabled("Orbit and spectate are in the Players window.");
 			EndPanel();
 
-			ImGui::SetCursorPos(ImVec2(colW * 2.0f + gap * 2.0f, 0));
-			BeginPanel("Movement / Stream", &st.flyEnabled, ImVec2(colW, topH), Icon::Running);
-			HotkeyRow("Fly key", st.flyKeyLabel);
+			ImGui::SetCursorPos(ImVec2(colW + gap, 0));
+			BeginPanel("Movement / Stream", nullptr, ImVec2(colW, topH), Icon::Running);
+			CheckboxRow("Toggle fly", &st.flyEnabled);
+			BindPickerRow("Fly key", &st.flyKey);
 			ComboRow("Fly mode", &st.flyMode, flyModes, IM_ARRAYSIZE(flyModes));
 			SliderRowF("Fly speed", &st.flySpeed, 1.0f, 200.0f);
 			CheckboxRow("Behind player", &st.behindPlayerEnabled);
-			HotkeyRow("Behind key", st.behindPlayerKeyLabel);
+			BindPickerRow("Behind key", &st.behindPlayerKey);
 			SliderRowF("Behind distance", &st.behindPlayerDistance, 1.0f, 20.0f);
 			SliderRowF("Behind FOV", &st.behindPlayerFOV, 50.0f, 500.0f, "%.0f");
 			CheckboxRow("Toggle noclip", &st.noclipEnabled);
+			SliderRowF("Orbit distance", &st.orbitDistanceMultiplier, 0.25f, 5.0f, "%.2fx");
+			SliderRowF("Orbit speed", &st.orbitSpeedMultiplier, 0.1f, 5.0f, "%.2fx");
 			CheckboxRow("Hide Stream", &st.streamproofEnabled);
 			ImGui::TextWrapped("Hides the overlay from OBS and other capture software.");
 			EndPanel();
@@ -1350,27 +1434,45 @@ namespace SkechStyle
 			ImGui::SetCursorPos(ImVec2(0, topH + gap));
 			BeginPanel("Humanoid", nullptr, ImVec2(contentW, botH), Icon::Person);
 			CheckboxRow("WalkSpeed active", &st.walkSpeedEnabled);
+			BindPickerRow("WalkSpeed key", &st.walkSpeedKey);
 			SliderRowI("WalkSpeed", &st.walkSpeedSet, 0, 1000);
 			CheckboxRow("JumpPower active", &st.jumpPowerEnabled);
+			BindPickerRow("JumpPower key", &st.jumpPowerKey);
 			SliderRowI("JumpPower", &st.jumpPowerSet, 0, 1000);
-			ImGui::TextDisabled("Toggles keep applying while on. Turn off to restore.");
+			ImGui::TextDisabled("Key toggles the active checkbox. Sliders apply while on.");
 			EndPanel();
 		}
 		else if (st.nav == 4)
 		{
+			const float headerH = 56.0f;
 			{
+				ImDrawList* hdl = ImGui::GetWindowDrawList();
+				const ImVec2 hp = ImGui::GetCursorScreenPos();
+				hdl->AddRectFilled(hp, ImVec2(hp.x + contentW, hp.y + 48.0f), U32(ColPanel()), 8.0f);
+				hdl->AddRect(ImVec2(hp.x + 1, hp.y + 1), ImVec2(hp.x + contentW - 1, hp.y + 47.0f), U32(ColOuter()), 8.0f, 0, 1.1f);
 				char bank[64];
-				ImFormatString(bank, IM_ARRAYSIZE(bank), "BANK  $%d", st.gamblingBalance);
-				ImGui::TextColored(ColAccent(), "%s", bank);
-				ImGui::SameLine();
-				ImGui::TextColored(ColTextDim(), "  +$500 each day  (live, not editable)");
-				ImGui::Dummy(ImVec2(0, 6));
+				ImFormatString(bank, IM_ARRAYSIZE(bank), "Balance   $%d", st.gamblingBalance);
+				hdl->AddText(ImGui::GetFont(), 20.0f, ImVec2(hp.x + 16.0f, hp.y + 12.0f), U32(ColAccent()), bank);
+				hdl->AddText(ImVec2(hp.x + 220.0f, hp.y + 16.0f), U32(ColTextDim()), "Starts at $500  ·  +$500 each day  ·  set a bet on each game");
+				ImGui::Dummy(ImVec2(contentW, headerH));
 			}
+			const float bodyH = contentH - headerH;
 			const float colW = (contentW - gap * 2.0f) / 3.0f;
 
+			auto betRow = [](const char* id, int* bet, int balance)
+			{
+				ImGui::TextColored(ColTextDim(), "Bet amount");
+				if (*bet < 1) *bet = 1;
+				if (*bet > 500) *bet = 500;
+				ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 4.0f);
+				ImGui::SliderInt(id, bet, 1, 500, "$%d");
+				if (*bet > balance)
+					ImGui::TextColored(ColEnemy(), "Not enough balance.");
+			};
+
 			// ---- Slots ----
-			ImGui::SetCursorPos(ImVec2(0, 0));
-			BeginPanel("Slots", nullptr, ImVec2(colW, contentH), Icon::Dice);
+			ImGui::SetCursorPos(ImVec2(0, headerH));
+			BeginPanel("Slots", nullptr, ImVec2(colW, bodyH), Icon::Dice);
 
 			if (st.slotSpinning)
 			{
@@ -1400,6 +1502,16 @@ namespace SkechStyle
 					st.slot2 = st.slotTarget2;
 					st.slot3 = st.slotTarget3;
 					st.slotOffset[0] = st.slotOffset[1] = st.slotOffset[2] = 0.0f;
+					int payout = 0;
+					if (st.slot1 == st.slot2 && st.slot2 == st.slot3)
+						payout = st.slotBet * 10;
+					else if (st.slot1 == st.slot2 || st.slot2 == st.slot3 || st.slot1 == st.slot3)
+						payout = st.slotBet * 2;
+					if (payout > 0)
+					{
+						st.gamblingBalance += payout;
+						SaveWallet(st);
+					}
 				}
 			}
 
@@ -1424,9 +1536,12 @@ namespace SkechStyle
 				ImGui::Dummy(ImVec2(0, reelH + 12.0f));
 			}
 
-			const bool canSpin = !st.slotSpinning;
+			betRow("##slotbet", &st.slotBet, st.gamblingBalance);
+			const bool canSpin = !st.slotSpinning && st.gamblingBalance >= st.slotBet;
 			if (canSpin && FullButton("Spin"))
 			{
+				st.gamblingBalance -= st.slotBet;
+				SaveWallet(st);
 				st.slotSpinning = true;
 				st.slotSpinT = 0.0f;
 				st.slotSpinDur = 1.35f;
@@ -1434,30 +1549,37 @@ namespace SkechStyle
 				st.slotTarget2 = rand() % 10;
 				st.slotTarget3 = rand() % 10;
 			}
-			else if (!canSpin)
+			else if (st.slotSpinning)
 			{
 				ImGui::BeginDisabled();
 				FullButton("Spinning...");
 				ImGui::EndDisabled();
 			}
+			else
+			{
+				ImGui::BeginDisabled();
+				FullButton("Spin");
+				ImGui::EndDisabled();
+			}
 			if (!st.slotSpinning && st.slot1 == st.slot2 && st.slot2 == st.slot3)
-				ImGui::TextColored(ColFriend(), "Jackpot!");
+				ImGui::TextColored(ColFriend(), "Jackpot!  10x");
 			EndPanel();
 
 			// ---- Blackjack ----
-			ImGui::SetCursorPos(ImVec2(colW + gap, 0));
-			BeginPanel("Blackjack", nullptr, ImVec2(colW, contentH), Icon::Box);
-			ImGui::TextColored(ColTextDim(), "Bet");
-			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 4.0f);
-			ImGui::SliderInt("##bjbet", &st.bjBet, 1, 100);
+			ImGui::SetCursorPos(ImVec2(colW + gap, headerH));
+			BeginPanel("Blackjack", nullptr, ImVec2(colW, bodyH), Icon::Box);
+			betRow("##bjbet", &st.bjBet, st.gamblingBalance);
 			ImGui::TextWrapped("%s", st.bjMsg);
 			ImGui::Spacing();
 
 			auto dealCard = []() { return rand() % 52; };
 			if (st.bjPhase == 0 || st.bjPhase == 3)
 			{
-				if (FullButton("Deal"))
+				if (st.gamblingBalance >= st.bjBet && FullButton("Deal"))
 				{
+					st.gamblingBalance -= st.bjBet;
+					st.bjSettled = false;
+					SaveWallet(st);
 					st.bjPlayerCount = st.bjDealerCount = 0;
 					st.bjPlayer[st.bjPlayerCount++] = dealCard();
 					st.bjDealer[st.bjDealerCount++] = dealCard();
@@ -1468,7 +1590,19 @@ namespace SkechStyle
 					if (HandTotal(st.bjPlayer, st.bjPlayerCount) == 21)
 					{
 						st.bjPhase = 3;
-						ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "Blackjack! You win.");
+						st.gamblingBalance += (int)(st.bjBet * 2.5f);
+						st.bjSettled = true;
+						SaveWallet(st);
+						ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "Blackjack! +$%d", (int)(st.bjBet * 2.5f));
+					}
+				}
+				else if (st.bjPhase == 0 || st.bjPhase == 3)
+				{
+					if (st.gamblingBalance < st.bjBet)
+					{
+						ImGui::BeginDisabled();
+						FullButton("Deal");
+						ImGui::EndDisabled();
 					}
 				}
 			}
@@ -1481,6 +1615,7 @@ namespace SkechStyle
 					if (pt > 21)
 					{
 						st.bjPhase = 3;
+						st.bjSettled = true;
 						ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "Bust (%d). Dealer wins.", pt);
 					}
 				}
@@ -1491,10 +1626,25 @@ namespace SkechStyle
 					const int pt = HandTotal(st.bjPlayer, st.bjPlayerCount);
 					const int dt = HandTotal(st.bjDealer, st.bjDealerCount);
 					st.bjPhase = 3;
-					if (dt > 21) ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "Dealer bust (%d). You win!", dt);
-					else if (pt > dt) ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "You %d vs %d — win!", pt, dt);
-					else if (pt < dt) ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "You %d vs %d — lose.", pt, dt);
-					else ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "Push %d.", pt);
+					if (dt > 21)
+					{
+						st.gamblingBalance += st.bjBet * 2;
+						ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "Dealer bust. +$%d", st.bjBet * 2);
+					}
+					else if (pt > dt)
+					{
+						st.gamblingBalance += st.bjBet * 2;
+						ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "You win! +$%d", st.bjBet * 2);
+					}
+					else if (pt < dt)
+						ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "You lose. -$%d", st.bjBet);
+					else
+					{
+						st.gamblingBalance += st.bjBet;
+						ImFormatString(st.bjMsg, IM_ARRAYSIZE(st.bjMsg), "Push. Bet returned.");
+					}
+					st.bjSettled = true;
+					SaveWallet(st);
 				}
 			}
 
@@ -1528,8 +1678,9 @@ namespace SkechStyle
 			EndPanel();
 
 			// ---- Mines ----
-			ImGui::SetCursorPos(ImVec2(colW * 2.0f + gap * 2.0f, 0));
-			BeginPanel("Mines", nullptr, ImVec2(colW, contentH), Icon::Box);
+			ImGui::SetCursorPos(ImVec2(colW * 2.0f + gap * 2.0f, headerH));
+			BeginPanel("Mines", nullptr, ImVec2(colW, bodyH), Icon::Box);
+			betRow("##minesbet", &st.minesBet, st.gamblingBalance);
 			ImGui::TextColored(ColTextDim(), "Bombs");
 			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 4.0f);
 			ImGui::SliderInt("##mbombs", &st.minesBombs, 1, 12);
@@ -1537,8 +1688,10 @@ namespace SkechStyle
 
 			if (!st.minesActive)
 			{
-				if (FullButton("Start round"))
+				if (st.gamblingBalance >= st.minesBet && FullButton("Start round"))
 				{
+					st.gamblingBalance -= st.minesBet;
+					SaveWallet(st);
 					for (int i = 0; i < DemoState::MinesN; ++i) { st.minesBomb[i] = false; st.minesRevealed[i] = false; }
 					int placed = 0;
 					while (placed < st.minesBombs)
@@ -1552,6 +1705,12 @@ namespace SkechStyle
 					st.minesSafe = 0;
 					st.minesMult = 1.0f;
 				}
+				else if (st.gamblingBalance < st.minesBet)
+				{
+					ImGui::BeginDisabled();
+					FullButton("Start round");
+					ImGui::EndDisabled();
+				}
 			}
 			else
 			{
@@ -1559,6 +1718,9 @@ namespace SkechStyle
 				{
 					st.minesCashed = true;
 					st.minesActive = false;
+					const int win = (int)(st.minesBet * st.minesMult);
+					st.gamblingBalance += win;
+					SaveWallet(st);
 					for (int i = 0; i < DemoState::MinesN; ++i) st.minesRevealed[i] = true;
 				}
 				if ((st.minesDead || st.minesCashed) && FullButton("New round"))
@@ -1629,13 +1791,15 @@ namespace SkechStyle
 			BeginPanel("Keybinds", nullptr, ImVec2(contentW * 0.55f, contentH * 0.55f), Icon::Keyboard);
 			CheckboxRow("Show floating keybind list", &st.keybindListVisible);
 			ImGui::Spacing();
-			ImGui::TextWrapped("Active binds turn green in the floating list.");
+			ImGui::TextWrapped("Click a bind, then press a key. Backspace or Escape clears it.");
 			ImGui::Separator();
-			HotkeyRow("Aimbot", st.aimbotKeyLabel);
-			HotkeyRow("Triggerbot", st.triggerbotKeyLabel);
-			HotkeyRow("Fly", st.flyKeyLabel);
-			HotkeyRow("Behind player", st.behindPlayerKeyLabel);
-			HotkeyRow("Toggle GUI", st.toggleGuiKeyLabel);
+			BindPickerRow("Aimbot", &st.aimbotKey);
+			BindPickerRow("Triggerbot", &st.triggerbotKey);
+			BindPickerRow("Fly", &st.flyKey);
+			BindPickerRow("Behind player", &st.behindPlayerKey);
+			BindPickerRow("WalkSpeed", &st.walkSpeedKey);
+			BindPickerRow("JumpPower", &st.jumpPowerKey);
+			BindPickerRow("Toggle GUI", &st.toggleGuiKey);
 			EndPanel();
 		}
 

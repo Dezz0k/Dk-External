@@ -9,6 +9,10 @@
 #include <cstring>
 #include <algorithm>
 #include <unordered_set>
+#include <unordered_map>
+#include <mutex>
+#include <cstdint>
+#include <vector>
 
 #include "resource.h"
 
@@ -35,6 +39,7 @@ using json = nlohmann::json;
 #define SNOW_LIMIT 80
 
 std::vector<RBX::Instance> playersList;
+std::vector<std::string> playersListNames;
 std::unordered_set<std::string> friendNames;
 std::unordered_set<std::string> enemyNames;
 std::vector<std::string> aimbotLockPartsR6{ "Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" };
@@ -102,6 +107,7 @@ namespace Settings
 	bool rbxWindowNeedsToBeSelected{ true };
 	int mainLoopDelay{ 0 };
 	bool highEndVisuals{ true };
+	bool sessionBoost{ false };
 
 	bool noclipEnabled{ false };
 	bool flyEnabled{ false };
@@ -119,8 +125,10 @@ namespace Settings
 	float behindPlayerFOV{ 250.0f };
 	bool walkSpeedEnabled{ false };
 	int walkSpeedSet{ 16 };
+	int walkSpeedKey{ 0 };
 	bool jumpPowerEnabled{ false };
 	int jumpPowerSet{ 50 };
+	int jumpPowerKey{ 0 };
 	char othersRobloxPlr[64]{};
 	RBX::Vector3 othersTeleportPos{};
 
@@ -146,6 +154,18 @@ static bool IsFriend(const std::string& name)
 	return !name.empty() && friendNames.find(name) != friendNames.end();
 }
 
+static std::string GetPlayersListName(size_t idx, RBX::Instance& modelFallback)
+{
+	if (idx < playersListNames.size())
+		return playersListNames[idx];
+	return modelFallback.name();
+}
+
+static bool PlayerIsSmiteUser(RBX::Instance player);
+static int64_t ReadPlayerUserId(RBX::Instance player);
+static void RequestAvatar(int64_t userId);
+static ID3D11ShaderResourceView* GetAvatarSrv(int64_t userId, ImVec2* sizeOut = nullptr);
+
 static void ToggleFriend(const std::string& name)
 {
 	if (name.empty())
@@ -155,6 +175,156 @@ static void ToggleFriend(const std::string& name)
 		friendNames.erase(name);
 	else
 		friendNames.insert(name);
+}
+
+static void PopulateGuiPlayers(SkechStyle::DemoState& st, RBX::Instance& players, RBX::Instance& localPlayer)
+{
+	st.livePlayerCount = 0;
+	st.adminPlayerCount = 1;
+	st.adminPlayerNames[0] = "Select player";
+
+	const std::string localName{ localPlayer.name() };
+	for (RBX::Instance plr : players.getChildren())
+	{
+		if (plr.className() != "Player")
+			continue;
+
+		const std::string name{ plr.name() };
+		if (name.empty())
+			continue;
+
+		if (st.livePlayerCount >= SkechStyle::DemoState::MaxLivePlayers)
+			break;
+
+		auto& entry = st.livePlayers[st.livePlayerCount++];
+		strncpy_s(entry.name, name.c_str(), _TRUNCATE);
+		entry.userId = ReadPlayerUserId(plr);
+		entry.isLocal = (name == localName);
+		entry.isFriend = IsFriend(name);
+		entry.isSmite = PlayerIsSmiteUser(plr);
+
+		if (!entry.isLocal && entry.isSmite && st.adminPlayerCount < SkechStyle::DemoState::MaxLivePlayers + 1)
+			st.adminPlayerNames[st.adminPlayerCount++] = entry.name;
+	}
+
+	if (st.selectedLivePlayer >= st.livePlayerCount)
+		st.selectedLivePlayer = -1;
+
+	st.selectedAvatarTex = nullptr;
+	st.selectedAvatarSize = ImVec2(0, 0);
+	if (st.selectedLivePlayer >= 0 && st.selectedLivePlayer < st.livePlayerCount)
+	{
+		const int64_t uid = st.livePlayers[st.selectedLivePlayer].userId;
+		RequestAvatar(uid);
+		ImVec2 sz{};
+		if (ID3D11ShaderResourceView* srv{ GetAvatarSrv(uid, &sz) })
+		{
+			st.selectedAvatarTex = srv;
+			st.selectedAvatarSize = sz;
+		}
+	}
+}
+
+static void ProcessGuiPlayerActions(SkechStyle::DemoState& st, RBX::Instance& players, RBX::Instance& camera, RBX::Instance& humanoid, RBX::Instance& hrp)
+{
+	using Action = SkechStyle::DemoState::PlayerListAction;
+	if (st.playerAction == Action::None)
+		return;
+
+	const char* target = st.playerActionTarget;
+	switch (st.playerAction)
+	{
+	case Action::Spectate:
+		if (target[0])
+		{
+			strncpy_s(Settings::othersRobloxPlr, target, _TRUNCATE);
+			RBX::Instance targetPlr{ players.findFirstChild(Settings::othersRobloxPlr) };
+			RBX::Instance targetMi{ targetPlr.getModelInstance() };
+			RBX::Instance targetHum{ targetMi.findFirstChild("Humanoid") };
+			if (targetHum.address)
+				RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), targetHum.address);
+		}
+		break;
+	case Action::StopSpectate:
+		if (humanoid.address)
+			RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), humanoid.address);
+		break;
+	case Action::Teleport:
+		if (target[0])
+		{
+			strncpy_s(Settings::othersRobloxPlr, target, _TRUNCATE);
+			RBX::Instance plr{ players.findFirstChild(Settings::othersRobloxPlr) };
+			RBX::Instance plrMi{ plr.getModelInstance() };
+			RBX::Instance plrHrp{ plrMi.findFirstChild("HumanoidRootPart") };
+			if (plrHrp.address && hrp.address)
+				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::Position), plrHrp.getPosition());
+		}
+		break;
+	case Action::Orbit:
+		if (target[0])
+		{
+			strncpy_s(Settings::othersRobloxPlr, target, _TRUNCATE);
+			Settings::orbitEnabled = true;
+		}
+		break;
+	case Action::StopOrbit:
+		Settings::orbitEnabled = false;
+		break;
+	case Action::ToggleFriend:
+		if (target[0])
+			ToggleFriend(target);
+		break;
+	case Action::ToggleEnemy:
+		if (target[0])
+		{
+			if (enemyNames.find(target) != enemyNames.end())
+				enemyNames.erase(target);
+			else
+				enemyNames.insert(target);
+		}
+		break;
+	default:
+		break;
+	}
+
+	st.playerAction = Action::None;
+	st.playerActionTarget[0] = '\0';
+}
+
+static void ProcessGuiTpActions(SkechStyle::DemoState& st, RBX::Instance& hrp)
+{
+	using TpAction = SkechStyle::DemoState::TpAction;
+	if (st.tpAction == TpAction::None)
+		return;
+
+	switch (st.tpAction)
+	{
+	case TpAction::SetFromLocal:
+		if (hrp.address)
+		{
+			const RBX::Vector3 pos{ hrp.getPosition() };
+			st.tpX = pos.x;
+			st.tpY = pos.y;
+			st.tpZ = pos.z;
+			Settings::othersTeleportPos = pos;
+		}
+		break;
+	case TpAction::Clear:
+		st.tpX = st.tpY = st.tpZ = 0.0f;
+		Settings::othersTeleportPos = { 0.0f, 0.0f, 0.0f };
+		break;
+	case TpAction::Teleport:
+		if (hrp.address)
+		{
+			Settings::othersTeleportPos = { st.tpX, st.tpY, st.tpZ };
+			RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::Position), Settings::othersTeleportPos);
+		}
+		break;
+	default:
+		break;
+	}
+
+	st.tpAction = TpAction::None;
 }
 
 static RBX::Instance resolveLockPart(RBX::Instance& plr, const std::string& partName, POINT mousePos, RBX::VisualEngine& visualEngine)
@@ -243,6 +413,125 @@ static bool IsSmiteUser(RBX::Instance humanoid)
 	return fabsf(v - kSmiteTagSlope) < 0.003f;
 }
 
+static bool PlayerIsSmiteUser(RBX::Instance player)
+{
+	if (!player.address)
+		return false;
+	RBX::Instance mi{ player.getModelInstance() };
+	return IsSmiteUser(mi.findFirstChild("Humanoid"));
+}
+
+static int64_t ReadPlayerUserId(RBX::Instance player)
+{
+	if (!player.address)
+		return 0;
+	return RBX::Memory::read<int64_t>((void*)((uintptr_t)player.address + Offsets::UserId));
+}
+
+static std::mutex gAvatarMu;
+struct AvatarPendingBytes { int64_t userId; std::vector<unsigned char> bytes; };
+static std::vector<AvatarPendingBytes> gAvatarReady;
+static std::unordered_map<int64_t, ID3D11ShaderResourceView*> gAvatarSrv;
+static std::unordered_map<int64_t, ImVec2> gAvatarSize;
+static std::unordered_set<int64_t> gAvatarPending;
+
+static bool HttpGetBytes(const char* url, std::string& out)
+{
+	HINTERNET net{ InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0) };
+	if (!net) return false;
+	HINTERNET req{ InternetOpenUrlA(net, url, NULL, 0,
+		INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0) };
+	if (!req)
+	{
+		InternetCloseHandle(net);
+		return false;
+	}
+	char buf[4096];
+	DWORD read = 0;
+	out.clear();
+	while (InternetReadFile(req, buf, sizeof(buf), &read) && read)
+		out.append(buf, read);
+	InternetCloseHandle(req);
+	InternetCloseHandle(net);
+	return !out.empty();
+}
+
+static void RequestAvatar(int64_t userId)
+{
+	if (userId <= 0)
+		return;
+	{
+		std::lock_guard<std::mutex> lock(gAvatarMu);
+		if (gAvatarSrv.count(userId) || gAvatarPending.count(userId))
+			return;
+		gAvatarPending.insert(userId);
+	}
+	std::thread([userId]()
+	{
+		char metaUrl[256];
+		sprintf_s(metaUrl, "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=%lld&size=150x150&format=Png&isCircular=false", (long long)userId);
+		std::string jsonBody;
+		std::string imageUrl;
+		if (HttpGetBytes(metaUrl, jsonBody))
+		{
+			const auto pos = jsonBody.find("\"imageUrl\":\"");
+			if (pos != std::string::npos)
+			{
+				const auto start = pos + 12;
+				const auto end = jsonBody.find('"', start);
+				if (end != std::string::npos)
+				{
+					imageUrl = jsonBody.substr(start, end - start);
+					for (size_t i = 0; i + 1 < imageUrl.size(); ++i)
+					{
+						if (imageUrl[i] == '\\' && imageUrl[i + 1] == '/')
+							imageUrl.erase(i, 1);
+					}
+				}
+			}
+		}
+		std::string png;
+		if (!imageUrl.empty())
+			HttpGetBytes(imageUrl.c_str(), png);
+		std::lock_guard<std::mutex> lock(gAvatarMu);
+		gAvatarPending.erase(userId);
+		if (!png.empty())
+			gAvatarReady.push_back({ userId, std::vector<unsigned char>(png.begin(), png.end()) });
+	}).detach();
+}
+
+static void PumpAvatars(Renderer& renderer)
+{
+	std::vector<AvatarPendingBytes> ready;
+	{
+		std::lock_guard<std::mutex> lock(gAvatarMu);
+		ready.swap(gAvatarReady);
+	}
+	for (auto& item : ready)
+	{
+		int w = 0, h = 0;
+		ID3D11ShaderResourceView* srv{ renderer.LoadTextureFromMemory(item.bytes.data(), (int)item.bytes.size(), w, h) };
+		if (!srv)
+			continue;
+		std::lock_guard<std::mutex> lock(gAvatarMu);
+		if (gAvatarSrv[item.userId])
+			gAvatarSrv[item.userId]->Release();
+		gAvatarSrv[item.userId] = srv;
+		gAvatarSize[item.userId] = ImVec2((float)w, (float)h);
+	}
+}
+
+static ID3D11ShaderResourceView* GetAvatarSrv(int64_t userId, ImVec2* sizeOut)
+{
+	std::lock_guard<std::mutex> lock(gAvatarMu);
+	auto it = gAvatarSrv.find(userId);
+	if (it == gAvatarSrv.end())
+		return nullptr;
+	if (sizeOut)
+		*sizeOut = gAvatarSize[userId];
+	return it->second;
+}
+
 static void DrawLightningBolt(ImDrawList* dl, ImVec2 head)
 {
 	const ImVec2 p{ head.x, head.y - 34.0f };
@@ -308,8 +597,10 @@ static bool SaveConfigFile(const std::string& name)
 	config["misc"]["flyMode"] = Settings::flyMode;
 	config["misc"]["walkSpeedEnabled"] = Settings::walkSpeedEnabled;
 	config["misc"]["walkSpeedSet"] = Settings::walkSpeedSet;
+	config["misc"]["walkSpeedKey"] = Settings::walkSpeedKey;
 	config["misc"]["jumpPowerEnabled"] = Settings::jumpPowerEnabled;
 	config["misc"]["jumpPowerSet"] = Settings::jumpPowerSet;
+	config["misc"]["jumpPowerKey"] = Settings::jumpPowerKey;
 	config["misc"]["orbitDistanceMultiplier"] = Settings::orbitDistanceMultiplier;
 	config["misc"]["orbitSpeedMultiplier"] = Settings::orbitSpeedMultiplier;
 	config["misc"]["behindPlayerEnabled"] = Settings::behindPlayerEnabled;
@@ -324,6 +615,136 @@ static bool SaveConfigFile(const std::string& name)
 		return false;
 	oF << config.dump(4);
 	return true;
+}
+
+static bool LoadConfigFile(const std::string& name)
+{
+	if (name.empty())
+		return false;
+	const std::filesystem::path path{ std::filesystem::path("configs") / (name + ".json") };
+	std::ifstream iF(path);
+	if (!iF.is_open())
+		return false;
+	json config;
+	try
+	{
+		iF >> config;
+	}
+	catch (...)
+	{
+		return false;
+	}
+
+	if (config.contains("silentaim"))
+	{
+		if (config["silentaim"].contains("enabled")) Settings::silentAimEnabled = config["silentaim"]["enabled"].get<bool>();
+		if (config["silentaim"].contains("lockPart")) Settings::silentAimLockPart = config["silentaim"]["lockPart"].get<std::string>();
+		if (config["silentaim"].contains("FOVradius")) Settings::silentAimFOVRadius = config["silentaim"]["FOVradius"].get<float>();
+	}
+	if (config.contains("aimbot"))
+	{
+		if (config["aimbot"].contains("enabled")) Settings::aimbotEnabled = config["aimbot"]["enabled"].get<bool>();
+		if (config["aimbot"].contains("FOVenabled")) Settings::aimbotFOVEnabled = config["aimbot"]["FOVenabled"].get<bool>();
+		if (config["aimbot"].contains("FOVradius")) Settings::aimbotFOVRadius = config["aimbot"]["FOVradius"].get<float>();
+		if (config["aimbot"].contains("strenght")) Settings::aimbotStrenght = config["aimbot"]["strenght"].get<float>();
+		if (config["aimbot"].contains("lockPart")) Settings::aimbotLockPart = config["aimbot"]["lockPart"].get<std::string>();
+		if (config["aimbot"].contains("key")) Settings::aimbotKey = config["aimbot"]["key"].get<int>();
+		if (config["aimbot"].contains("toggleLock")) Settings::aimbotToggleLock = config["aimbot"]["toggleLock"].get<bool>();
+		if (config["aimbot"].contains("predictionEnabled")) Settings::aimbotPredictionEnabled = config["aimbot"]["predictionEnabled"].get<bool>();
+		if (config["aimbot"].contains("predictionX")) Settings::aimbotPredictionX = config["aimbot"]["predictionX"].get<float>();
+		if (config["aimbot"].contains("predictionY")) Settings::aimbotPredictionY = config["aimbot"]["predictionY"].get<float>();
+		if (config["aimbot"].contains("FOVcolor") && config["aimbot"]["FOVcolor"].is_array() && config["aimbot"]["FOVcolor"].size() >= 4)
+		{
+			Settings::aimbotFovColor.x = config["aimbot"]["FOVcolor"][0].get<float>();
+			Settings::aimbotFovColor.y = config["aimbot"]["FOVcolor"][1].get<float>();
+			Settings::aimbotFovColor.z = config["aimbot"]["FOVcolor"][2].get<float>();
+			Settings::aimbotFovColor.w = config["aimbot"]["FOVcolor"][3].get<float>();
+		}
+	}
+	if (config.contains("triggerbot"))
+	{
+		if (config["triggerbot"].contains("enabled")) Settings::triggerbotEnabled = config["triggerbot"]["enabled"].get<bool>();
+		if (config["triggerbot"].contains("indicateClicking")) Settings::triggerbotIndicateClicking = config["triggerbot"]["indicateClicking"].get<bool>();
+		if (config["triggerbot"].contains("detectionRadius")) Settings::triggerbotDetectionRadius = config["triggerbot"]["detectionRadius"].get<float>();
+		if (config["triggerbot"].contains("triggerPart")) Settings::triggerbotTriggerPart = config["triggerbot"]["triggerPart"].get<std::string>();
+		if (config["triggerbot"].contains("key")) Settings::triggerbotKey = config["triggerbot"]["key"].get<int>();
+	}
+	if (config.contains("esp"))
+	{
+		if (config["esp"].contains("enabled")) Settings::espEnabled = config["esp"]["enabled"].get<bool>();
+		if (config["esp"].contains("filled")) Settings::espFilled = config["esp"]["filled"].get<bool>();
+		if (config["esp"].contains("showDistance")) Settings::espShowDistance = config["esp"]["showDistance"].get<bool>();
+		if (config["esp"].contains("showName")) Settings::espShowName = config["esp"]["showName"].get<bool>();
+		if (config["esp"].contains("showHealth")) Settings::espShowHealth = config["esp"]["showHealth"].get<bool>();
+		if (config["esp"].contains("ignoreDeadPlayers")) Settings::espIgnoreDeadPlrs = config["esp"]["ignoreDeadPlayers"].get<bool>();
+		if (config["esp"].contains("distance")) Settings::espDistance = config["esp"]["distance"].get<int>();
+		if (config["esp"].contains("type")) Settings::espType = config["esp"]["type"].get<std::string>();
+		if (config["esp"].contains("color") && config["esp"]["color"].is_array() && config["esp"]["color"].size() >= 4)
+		{
+			Settings::espColor.x = config["esp"]["color"][0].get<float>();
+			Settings::espColor.y = config["esp"]["color"][1].get<float>();
+			Settings::espColor.z = config["esp"]["color"][2].get<float>();
+			Settings::espColor.w = config["esp"]["color"][3].get<float>();
+		}
+	}
+	if (config.contains("tracers"))
+	{
+		if (config["tracers"].contains("enabled")) Settings::tracersEnabled = config["tracers"]["enabled"].get<bool>();
+		if (config["tracers"].contains("type")) Settings::tracerType = config["tracers"]["type"].get<std::string>();
+		if (config["tracers"].contains("color") && config["tracers"]["color"].is_array() && config["tracers"]["color"].size() >= 4)
+		{
+			Settings::tracerColor.x = config["tracers"]["color"][0].get<float>();
+			Settings::tracerColor.y = config["tracers"]["color"][1].get<float>();
+			Settings::tracerColor.z = config["tracers"]["color"][2].get<float>();
+			Settings::tracerColor.w = config["tracers"]["color"][3].get<float>();
+		}
+	}
+	if (config.contains("settings"))
+	{
+		if (config["settings"].contains("rbxWindowNeedsToBeSelected")) Settings::rbxWindowNeedsToBeSelected = config["settings"]["rbxWindowNeedsToBeSelected"].get<bool>();
+		if (config["settings"].contains("mainLoopDelay")) Settings::mainLoopDelay = config["settings"]["mainLoopDelay"].get<int>();
+		if (config["settings"].contains("autoSave")) Settings::autoSaveEnabled = config["settings"]["autoSave"].get<bool>();
+	}
+	if (config.contains("misc"))
+	{
+		if (config["misc"].contains("noclipEnabled")) Settings::noclipEnabled = config["misc"]["noclipEnabled"].get<bool>();
+		if (config["misc"].contains("flyEnabled")) Settings::flyEnabled = config["misc"]["flyEnabled"].get<bool>();
+		if (config["misc"].contains("flyKey")) Settings::flyKey = config["misc"]["flyKey"].get<int>();
+		if (config["misc"].contains("flySpeed")) Settings::flySpeed = config["misc"]["flySpeed"].get<float>();
+		if (config["misc"].contains("flyMode")) Settings::flyMode = config["misc"]["flyMode"].get<std::string>();
+		if (config["misc"].contains("walkSpeedEnabled")) Settings::walkSpeedEnabled = config["misc"]["walkSpeedEnabled"].get<bool>();
+		if (config["misc"].contains("walkSpeedSet")) Settings::walkSpeedSet = config["misc"]["walkSpeedSet"].get<int>();
+		if (config["misc"].contains("walkSpeedKey")) Settings::walkSpeedKey = config["misc"]["walkSpeedKey"].get<int>();
+		if (config["misc"].contains("jumpPowerEnabled")) Settings::jumpPowerEnabled = config["misc"]["jumpPowerEnabled"].get<bool>();
+		if (config["misc"].contains("jumpPowerSet")) Settings::jumpPowerSet = config["misc"]["jumpPowerSet"].get<int>();
+		if (config["misc"].contains("jumpPowerKey")) Settings::jumpPowerKey = config["misc"]["jumpPowerKey"].get<int>();
+		if (config["misc"].contains("orbitDistanceMultiplier")) Settings::orbitDistanceMultiplier = config["misc"]["orbitDistanceMultiplier"].get<float>();
+		if (config["misc"].contains("orbitSpeedMultiplier")) Settings::orbitSpeedMultiplier = config["misc"]["orbitSpeedMultiplier"].get<float>();
+		if (config["misc"].contains("behindPlayerEnabled")) Settings::behindPlayerEnabled = config["misc"]["behindPlayerEnabled"].get<bool>();
+		if (config["misc"].contains("behindPlayerKey")) Settings::behindPlayerKey = config["misc"]["behindPlayerKey"].get<int>();
+		if (config["misc"].contains("behindPlayerDistance")) Settings::behindPlayerDistance = config["misc"]["behindPlayerDistance"].get<float>();
+		if (config["misc"].contains("behindPlayerFOV")) Settings::behindPlayerFOV = config["misc"]["behindPlayerFOV"].get<float>();
+		if (config["misc"].contains("streamproofEnabled")) Settings::streamproofEnabled = config["misc"]["streamproofEnabled"].get<bool>();
+	}
+	return true;
+}
+
+static void RefreshGuiConfigs(SkechStyle::DemoState& st)
+{
+	const std::vector<std::string> files{ ListConfigFiles() };
+	st.configCount = 0;
+	st.configIdx = 0;
+	for (const std::string& name : files)
+	{
+		if (st.configCount >= SkechStyle::DemoState::MaxConfigs)
+			break;
+		strncpy_s(st.configList[st.configCount], name.c_str(), _TRUNCATE);
+		st.configListPtrs[st.configCount] = st.configList[st.configCount];
+		if (name == Settings::configFileName)
+			st.configIdx = st.configCount;
+		++st.configCount;
+	}
+	st.requestRefreshConfigs = false;
 }
 
 static int GuiIndexOf(const char* const* items, int n, const std::string& s)
@@ -361,13 +782,13 @@ static void PullGui(SkechStyle::DemoState& st)
 	st.aimbotPredictionX = Settings::aimbotPredictionX;
 	st.aimbotPredictionY = Settings::aimbotPredictionY;
 	st.aimbotLockPart = GuiIndexOf(kGuiLockParts, IM_ARRAYSIZE(kGuiLockParts), Settings::aimbotLockPart);
-	strncpy_s(st.aimbotKeyLabel, GetBindName(Settings::aimbotKey), _TRUNCATE);
+	st.aimbotKey = Settings::aimbotKey;
 	st.aimbotFovColor = Settings::aimbotFovColor;
 	st.triggerbotEnabled = Settings::triggerbotEnabled;
 	st.triggerbotIndicateClicking = Settings::triggerbotIndicateClicking;
 	st.triggerbotDetectionRadius = Settings::triggerbotDetectionRadius;
 	st.triggerbotTriggerPart = GuiIndexOf(kGuiTrigParts, IM_ARRAYSIZE(kGuiTrigParts), Settings::triggerbotTriggerPart);
-	strncpy_s(st.triggerbotKeyLabel, GetBindName(Settings::triggerbotKey), _TRUNCATE);
+	st.triggerbotKey = Settings::triggerbotKey;
 	st.silentAimEnabled = Settings::silentAimEnabled;
 	st.silentAimLockPart = GuiIndexOf(kGuiLockParts, IM_ARRAYSIZE(kGuiLockParts), Settings::silentAimLockPart);
 	st.silentAimFOVRadius = Settings::silentAimFOVRadius;
@@ -384,29 +805,33 @@ static void PullGui(SkechStyle::DemoState& st)
 	st.tracerType = GuiIndexOf(kGuiTracerTypes, IM_ARRAYSIZE(kGuiTracerTypes), Settings::tracerType);
 	st.tracerColor = Settings::tracerColor;
 	strncpy_s(st.configFileName, Settings::configFileName, _TRUNCATE);
+	if (st.requestRefreshConfigs || st.configCount == 0)
+		RefreshGuiConfigs(st);
 	st.autoSaveEnabled = Settings::autoSaveEnabled;
 	st.rbxWindowNeedsToBeSelected = Settings::rbxWindowNeedsToBeSelected;
 	st.mainLoopDelay = Settings::mainLoopDelay;
-	strncpy_s(st.toggleGuiKeyLabel, GetBindName(Settings::toggleGuiKey), _TRUNCATE);
+	st.toggleGuiKey = Settings::toggleGuiKey;
 	st.tpX = Settings::othersTeleportPos.x;
 	st.tpY = Settings::othersTeleportPos.y;
 	st.tpZ = Settings::othersTeleportPos.z;
 	st.orbitDistanceMultiplier = Settings::orbitDistanceMultiplier;
 	st.orbitSpeedMultiplier = Settings::orbitSpeedMultiplier;
 	st.flyEnabled = Settings::flyEnabled;
-	strncpy_s(st.flyKeyLabel, GetBindName(Settings::flyKey), _TRUNCATE);
+	st.flyKey = Settings::flyKey;
 	st.flyMode = GuiIndexOf(kGuiFlyModes, IM_ARRAYSIZE(kGuiFlyModes), Settings::flyMode);
 	st.flySpeed = Settings::flySpeed;
 	st.behindPlayerEnabled = Settings::behindPlayerEnabled;
-	strncpy_s(st.behindPlayerKeyLabel, GetBindName(Settings::behindPlayerKey), _TRUNCATE);
+	st.behindPlayerKey = Settings::behindPlayerKey;
 	st.behindPlayerDistance = Settings::behindPlayerDistance;
 	st.behindPlayerFOV = Settings::behindPlayerFOV;
 	st.noclipEnabled = Settings::noclipEnabled;
 	st.streamproofEnabled = Settings::streamproofEnabled;
 	st.walkSpeedEnabled = Settings::walkSpeedEnabled;
 	st.walkSpeedSet = Settings::walkSpeedSet;
+	st.walkSpeedKey = Settings::walkSpeedKey;
 	st.jumpPowerEnabled = Settings::jumpPowerEnabled;
 	st.jumpPowerSet = Settings::jumpPowerSet;
+	st.jumpPowerKey = Settings::jumpPowerKey;
 	st.slot1 = Settings::gamblingSlotsNumber1;
 	st.slot2 = Settings::gamblingSlotsNumber2;
 	st.slot3 = Settings::gamblingSlotsNumber3;
@@ -418,6 +843,9 @@ static void PullGui(SkechStyle::DemoState& st)
 	st.ownerFreeze = Settings::ownerFreezeEnabled;
 	st.ownerFling = Settings::ownerFlingEnabled;
 	st.ownerJumpOnly = Settings::ownerJumpOnlyEnabled;
+	st.highEndVisuals = Settings::highEndVisuals;
+	st.sessionBoost = Settings::sessionBoost;
+	st.espPreviewOpened = Settings::espPreviewOpened;
 }
 
 static void PushGui(const SkechStyle::DemoState& st)
@@ -438,11 +866,13 @@ static void PushGui(const SkechStyle::DemoState& st)
 	Settings::aimbotPredictionX = st.aimbotPredictionX;
 	Settings::aimbotPredictionY = st.aimbotPredictionY;
 	Settings::aimbotLockPart = kGuiLockParts[st.aimbotLockPart];
+	Settings::aimbotKey = st.aimbotKey;
 	Settings::aimbotFovColor = st.aimbotFovColor;
 	Settings::triggerbotEnabled = st.triggerbotEnabled;
 	Settings::triggerbotIndicateClicking = st.triggerbotIndicateClicking;
 	Settings::triggerbotDetectionRadius = st.triggerbotDetectionRadius;
 	Settings::triggerbotTriggerPart = kGuiTrigParts[st.triggerbotTriggerPart];
+	Settings::triggerbotKey = st.triggerbotKey;
 	Settings::silentAimEnabled = st.silentAimEnabled;
 	Settings::silentAimLockPart = kGuiLockParts[st.silentAimLockPart];
 	Settings::silentAimFOVRadius = st.silentAimFOVRadius;
@@ -462,21 +892,26 @@ static void PushGui(const SkechStyle::DemoState& st)
 	Settings::autoSaveEnabled = st.autoSaveEnabled;
 	Settings::rbxWindowNeedsToBeSelected = st.rbxWindowNeedsToBeSelected;
 	Settings::mainLoopDelay = st.mainLoopDelay;
+	Settings::toggleGuiKey = st.toggleGuiKey;
 	Settings::othersTeleportPos = { st.tpX, st.tpY, st.tpZ };
 	Settings::orbitDistanceMultiplier = st.orbitDistanceMultiplier;
 	Settings::orbitSpeedMultiplier = st.orbitSpeedMultiplier;
 	Settings::flyEnabled = st.flyEnabled;
+	Settings::flyKey = st.flyKey;
 	Settings::flyMode = kGuiFlyModes[st.flyMode];
 	Settings::flySpeed = st.flySpeed;
 	Settings::behindPlayerEnabled = st.behindPlayerEnabled;
+	Settings::behindPlayerKey = st.behindPlayerKey;
 	Settings::behindPlayerDistance = st.behindPlayerDistance;
 	Settings::behindPlayerFOV = st.behindPlayerFOV;
 	Settings::noclipEnabled = st.noclipEnabled;
 	Settings::streamproofEnabled = st.streamproofEnabled;
 	Settings::walkSpeedEnabled = st.walkSpeedEnabled;
 	Settings::walkSpeedSet = st.walkSpeedSet;
+	Settings::walkSpeedKey = st.walkSpeedKey;
 	Settings::jumpPowerEnabled = st.jumpPowerEnabled;
 	Settings::jumpPowerSet = st.jumpPowerSet;
+	Settings::jumpPowerKey = st.jumpPowerKey;
 	Settings::gamblingSlotsNumber1 = st.slot1;
 	Settings::gamblingSlotsNumber2 = st.slot2;
 	Settings::gamblingSlotsNumber3 = st.slot3;
@@ -490,6 +925,8 @@ static void PushGui(const SkechStyle::DemoState& st)
 	Settings::ownerFreezeEnabled = st.ownerFreeze;
 	Settings::ownerFlingEnabled = st.ownerFling;
 	Settings::ownerJumpOnlyEnabled = st.ownerJumpOnly;
+	Settings::espPreviewOpened = st.espPreviewOpened;
+	Settings::sessionBoost = st.sessionBoost;
 }
 
 int main()
@@ -534,9 +971,10 @@ int main()
 		if (!perfChoice.empty() && perfChoice[0] == '2')
 		{
 			Settings::highEndVisuals = false;
-			if (Settings::mainLoopDelay < 10)
-				Settings::mainLoopDelay = 10;
-			std::cout << "Low end mode enabled (aim prioritized, menu FX off).\n";
+			Settings::tracersEnabled = false;
+			if (Settings::mainLoopDelay < 12)
+				Settings::mainLoopDelay = 12;
+			std::cout << "Low end mode enabled (aim + ESP prioritized).\n";
 		}
 		else
 		{
@@ -661,7 +1099,18 @@ int main()
 	guiSt.onSaveConfig = [&guiSt]()
 	{
 		const char* name = guiSt.configFileName[0] ? guiSt.configFileName : "autosave";
-		SaveConfigFile(name);
+		if (SaveConfigFile(name))
+		{
+			strncpy_s(Settings::configFileName, name, _TRUNCATE);
+			guiSt.requestRefreshConfigs = true;
+		}
+	};
+	guiSt.onLoadConfig = [&guiSt]()
+	{
+		if (!guiSt.configFileName[0])
+			return;
+		if (LoadConfigFile(guiSt.configFileName))
+			strncpy_s(Settings::configFileName, guiSt.configFileName, _TRUNCATE);
 	};
 
 	if (Settings::highEndVisuals)
@@ -834,12 +1283,16 @@ int main()
 
 			for (RBX::Instance player : players.getChildren())
 			{
-				RBX::Instance plr{ RBX::Memory::read<void*>((void*)((uintptr_t)player.address + Offsets::ModelInstance)) };
-
-				if (plr.name() == localPlayer.name() || IsFriend(plr.name()))
-				{
+				if (player.className() != "Player")
 					continue;
-				}
+
+				const std::string playerName{ player.name() };
+				if (playerName.empty() || playerName == localPlayer.name() || IsFriend(playerName))
+					continue;
+
+				RBX::Instance plr{ player.getModelInstance() };
+				if (!plr.address)
+					continue;
 
 				RBX::Instance lockPart{ resolveLockPart(plr, Settings::silentAimLockPart, mousePos, visualEngine) };
 				if (!lockPart.address)
@@ -930,13 +1383,29 @@ int main()
 
 		camera = RBX::Memory::read<void*>((void*)((uintptr_t)workspace.address + Offsets::Camera));
 
-		const ULONGLONG plrRefreshMs{ Settings::highEndVisuals ? 100ULL : 350ULL };
+		const ULONGLONG plrRefreshMs{ (Settings::highEndVisuals || Settings::sessionBoost) ? 100ULL : 350ULL };
 		if (GetTickCount64() - lastPlrRefresh > plrRefreshMs)
 		{
 			playersList.clear();
+			playersListNames.clear();
 			for (RBX::Instance plr : players.getChildren())
 			{
-				playersList.push_back(RBX::Instance(RBX::Memory::read<void*>((void*)((uintptr_t)plr.address + Offsets::ModelInstance))));
+				if (plr.className() != "Player")
+					continue;
+
+				const std::string playerName{ plr.name() };
+				if (playerName.empty())
+					continue;
+
+				RBX::Instance modelInstance{ plr.getModelInstance() };
+				if (!modelInstance.address)
+					continue;
+
+				if (!modelInstance.findFirstChild("HumanoidRootPart").address)
+					continue;
+
+				playersList.push_back(modelInstance);
+				playersListNames.push_back(playerName);
 			}
 			lastPlrRefresh = GetTickCount64();
 		}
@@ -970,13 +1439,33 @@ int main()
 				Snowflake::Update(snow, Snowflake::vec3(mouse.x, mouse.y), Snowflake::vec3(rc.left, rc.top));
 
 			PullGui(guiSt);
+			PumpAvatars(renderer);
+			PopulateGuiPlayers(guiSt, players, localPlayer);
 			if (!guiSt.logoTex && dkLogoImg)
 			{
 				guiSt.logoTex = dkLogoImg;
 				guiSt.logoSize = ImVec2((float)dkLogoImgW, (float)dkLogoImgH);
 			}
 			SkechStyle::DrawDemo(guiSt);
+			ProcessGuiTpActions(guiSt, hrp);
 			PushGui(guiSt);
+			ProcessGuiPlayerActions(guiSt, players, camera, humanoid, hrp);
+
+			if (guiSt.requestExit)
+			{
+				RBX::Memory::detach();
+				renderer.Shutdown();
+				return 0;
+			}
+
+			{
+				static bool lastStreamproof{ false };
+				if (Settings::streamproofEnabled != lastStreamproof)
+				{
+					SetWindowDisplayAffinity(renderer.hwnd, Settings::streamproofEnabled ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+					lastStreamproof = Settings::streamproofEnabled;
+				}
+			}
 
 			if (false)
 			{
@@ -1016,7 +1505,7 @@ int main()
 			if (friendsBtnHovered && imguiIo.MouseClicked[0])
 				Settings::friendsListVisible = !Settings::friendsListVisible;
 			if (friendsBtnHovered)
-				drawList->AddText({ mousePos.x + 15.0f, mousePos.y + 15.0f }, IM_COL32_WHITE, "Friends List");
+				drawList->AddText({ mousePos.x + 15.0f, mousePos.y + 15.0f }, IM_COL32_WHITE, "Players");
 
 			if (themeBtnHovered && imguiIo.MouseClicked[0])
 				Settings::themeWinVisible = !Settings::themeWinVisible;
@@ -1460,10 +1949,14 @@ int main()
 								Settings::walkSpeedEnabled = config["misc"]["walkSpeedEnabled"].get<bool>();
 							if (config["misc"].contains("walkSpeedSet"))
 								Settings::walkSpeedSet = config["misc"]["walkSpeedSet"].get<int>();
+							if (config["misc"].contains("walkSpeedKey"))
+								Settings::walkSpeedKey = config["misc"]["walkSpeedKey"].get<int>();
 							if (config["misc"].contains("jumpPowerEnabled"))
 								Settings::jumpPowerEnabled = config["misc"]["jumpPowerEnabled"].get<bool>();
 							if (config["misc"].contains("jumpPowerSet"))
 								Settings::jumpPowerSet = config["misc"]["jumpPowerSet"].get<int>();
+							if (config["misc"].contains("jumpPowerKey"))
+								Settings::jumpPowerKey = config["misc"]["jumpPowerKey"].get<int>();
 							if (config["misc"].contains("orbitDistanceMultiplier"))
 								Settings::orbitDistanceMultiplier = config["misc"]["orbitDistanceMultiplier"].get<float>();
 							if (config["misc"].contains("orbitSpeedMultiplier"))
@@ -1539,8 +2032,10 @@ int main()
 							config["misc"]["flyMode"] = Settings::flyMode;
 							config["misc"]["walkSpeedEnabled"] = Settings::walkSpeedEnabled;
 							config["misc"]["walkSpeedSet"] = Settings::walkSpeedSet;
+							config["misc"]["walkSpeedKey"] = Settings::walkSpeedKey;
 							config["misc"]["jumpPowerEnabled"] = Settings::jumpPowerEnabled;
 							config["misc"]["jumpPowerSet"] = Settings::jumpPowerSet;
+							config["misc"]["jumpPowerKey"] = Settings::jumpPowerKey;
 							config["misc"]["orbitDistanceMultiplier"] = Settings::orbitDistanceMultiplier;
 							config["misc"]["orbitSpeedMultiplier"] = Settings::orbitSpeedMultiplier;
 							config["misc"]["behindPlayerEnabled"] = Settings::behindPlayerEnabled;
@@ -1896,40 +2391,112 @@ int main()
 
 			if (Settings::friendsListVisible)
 			{
-				ImGui::SetNextWindowSize({ 340, 400 });
-				ImGui::Begin("DK - Friends List", (bool*)0, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
+				ImGui::SetNextWindowSize({ 620, 420 }, ImGuiCond_Appearing);
+				ImGui::Begin("Players", (bool*)0, ImGuiWindowFlags_NoSavedSettings);
 
 				ImVec2 winPos{ ImGui::GetWindowPos() };
 				ImVec2 winSize{ ImGui::GetWindowSize() };
 				if (Settings::highEndVisuals)
 					DrawGlow(ImGui::GetBackgroundDrawList(), winPos, { winPos.x + winSize.x, winPos.y + winSize.y }, glowColor, 4, 0.15f, 6.0f);
 
-				ImGui::Text("Friends List");
-				ImGui::TextWrapped("Check = friend (green ESP, ignored by aim). X = not a friend.");
+				ImGui::Text("Players");
+				ImGui::TextWrapped("Click a name, then Orbit / Spectate. Friend = green ESP, ignored by aim.");
 				ImGui::Separator();
-				ImGui::BeginChild("##FriendsScroll", { 0, 0 }, true);
-				for (RBX::Instance plr : playersList)
+
+				const float listW = ImGui::GetContentRegionAvail().x * 0.46f;
+				ImGui::BeginChild("##PlayersScroll", { listW, 0 }, true);
+
+				const std::string localName{ localPlayer.name() };
+				static int selectedPlayerRow{ -1 };
+				static char selectedPlayerName[64]{};
+				static int64_t selectedPlayerUserId{ 0 };
+				int row = 0;
+				for (RBX::Instance plr : players.getChildren())
 				{
+					if (plr.className() != "Player")
+						continue;
 					const std::string name{ plr.name() };
 					if (name.empty())
 						continue;
 
-					const bool isLocal{ name == localPlayer.name() };
-					if (isLocal)
-					{
-						ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "  %s (you)", name.c_str());
-						continue;
-					}
-
+					const bool isLocal{ name == localName };
 					const bool friendMarked{ IsFriend(name) };
 					ImGui::PushID(name.c_str());
-					if (ImGui::Button(friendMarked ? "[✓]" : "[X]", { 36.0f, 0.0f }))
-						ToggleFriend(name);
-					ImGui::SameLine();
-					ImGui::TextColored(friendMarked ? ImVec4(0.2f, 1.0f, 0.3f, 1.0f) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%s", name.c_str());
-					if (ImGui::IsItemClicked())
-						ToggleFriend(name);
+					if (isLocal)
+					{
+						ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s (you)", name.c_str());
+					}
+					else
+					{
+						if (ImGui::Selectable(name.c_str(), selectedPlayerRow == row))
+						{
+							selectedPlayerRow = row;
+							strncpy_s(selectedPlayerName, name.c_str(), _TRUNCATE);
+							strncpy_s(Settings::othersRobloxPlr, name.c_str(), _TRUNCATE);
+							selectedPlayerUserId = ReadPlayerUserId(plr);
+							RequestAvatar(selectedPlayerUserId);
+						}
+						if (friendMarked)
+						{
+							ImGui::SameLine();
+							ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.3f, 1.0f), "friend");
+						}
+					}
 					ImGui::PopID();
+					++row;
+				}
+				ImGui::EndChild();
+
+				ImGui::SameLine();
+				ImGui::BeginChild("##PlayerActions", { 0, 0 }, true);
+				if (selectedPlayerName[0] != '\0')
+				{
+					RequestAvatar(selectedPlayerUserId);
+					ImVec2 avSz{};
+					if (ID3D11ShaderResourceView* av{ GetAvatarSrv(selectedPlayerUserId, &avSz) })
+						ImGui::Image((void*)av, ImVec2(96.0f, 96.0f));
+					ImGui::Text("%s", selectedPlayerName);
+					RBX::Instance selPlr{ players.findFirstChild(selectedPlayerName) };
+					if (PlayerIsSmiteUser(selPlr))
+						ImGui::TextColored(ImVec4(0.92f, 0.12f, 0.14f, 1.0f), "Using this");
+					ImGui::Separator();
+					if (ImGui::Button("Orbit", { -1, 0 }))
+					{
+						strncpy_s(Settings::othersRobloxPlr, selectedPlayerName, _TRUNCATE);
+						Settings::orbitEnabled = true;
+					}
+					if (ImGui::Button("Spectate", { -1, 0 }))
+					{
+						strncpy_s(Settings::othersRobloxPlr, selectedPlayerName, _TRUNCATE);
+						RBX::Instance targetPlr{ players.findFirstChild(selectedPlayerName) };
+						RBX::Instance targetMi{ targetPlr.getModelInstance() };
+						RBX::Instance targetHum{ targetMi.findFirstChild("Humanoid") };
+						if (targetHum.address)
+							RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), targetHum.address);
+					}
+					if (ImGui::Button("Stop spectating", { -1, 0 }))
+					{
+						if (humanoid.address)
+							RBX::Memory::write<void*>((void*)((uintptr_t)camera.address + Offsets::CameraSubject), humanoid.address);
+					}
+					if (ImGui::Button("Stop orbit", { -1, 0 }))
+						Settings::orbitEnabled = false;
+					if (ImGui::Button("Teleport", { -1, 0 }))
+					{
+						strncpy_s(Settings::othersRobloxPlr, selectedPlayerName, _TRUNCATE);
+						RBX::Instance plr{ players.findFirstChild(selectedPlayerName) };
+						RBX::Instance plrMi{ plr.getModelInstance() };
+						RBX::Instance plrHrp{ plrMi.findFirstChild("HumanoidRootPart") };
+						if (plrHrp.address && hrp.address)
+							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::Position), plrHrp.getPosition());
+					}
+					ImGui::Spacing();
+					if (ImGui::Button(IsFriend(selectedPlayerName) ? "Remove friend" : "Add friend", { -1, 0 }))
+						ToggleFriend(selectedPlayerName);
+				}
+				else
+				{
+					ImGui::TextDisabled("Select a player.");
 				}
 				ImGui::EndChild();
 				ImGui::End();
@@ -2037,22 +2604,31 @@ int main()
 					if (KeyAuth::IsCoOwner())
 					{
 						ImGui::Separator();
-						ImGui::Text("[Trolls] CoOwner+");
-						ImGui::Text("Target player");
-						const char* playerPreview{ Settings::othersRobloxPlr[0] ? Settings::othersRobloxPlr : "Select player" };
+						ImGui::Text("[Trolls] CoOwner+  (DK users only)");
+						ImGui::TextWrapped("Only people running this show up. Commands only work on them.");
+						ImGui::Text("Target");
+						const char* playerPreview{ Settings::othersRobloxPlr[0] ? Settings::othersRobloxPlr : "Select DK user" };
 						if (ImGui::BeginCombo("##Admin player", playerPreview))
 						{
+							int listed = 0;
 							for (RBX::Instance plr : players.getChildren())
 							{
-								const std::string name{ plr.name() };
-								if (name.empty())
+								if (plr.className() != "Player")
 									continue;
+								const std::string name{ plr.name() };
+								if (name.empty() || name == localPlayer.name())
+									continue;
+								if (!PlayerIsSmiteUser(plr))
+									continue;
+								++listed;
 								const bool selected{ name == Settings::othersRobloxPlr };
 								if (ImGui::Selectable(name.c_str(), selected))
 									strncpy_s(Settings::othersRobloxPlr, name.c_str(), _TRUNCATE);
 								if (selected)
 									ImGui::SetItemDefaultFocus();
 							}
+							if (listed == 0)
+								ImGui::TextDisabled("No other DK users in this server.");
 							ImGui::EndCombo();
 						}
 						ImGui::Checkbox("Bring to me", &Settings::ownerBringEnabled);
@@ -2093,6 +2669,8 @@ int main()
 			DrawKeybindProp("Triggerbot", "HOLD", Settings::triggerbotKey, triggerActive);
 			DrawKeybindProp("Fly", "TOGGLE", Settings::flyKey, flyActive);
 			DrawKeybindProp("Behind player", "PRESS", Settings::behindPlayerKey, behindActive);
+			DrawKeybindProp("WalkSpeed", "TOGGLE", Settings::walkSpeedKey, Settings::walkSpeedEnabled);
+			DrawKeybindProp("JumpPower", "TOGGLE", Settings::jumpPowerKey, Settings::jumpPowerEnabled);
 			DrawKeybindProp("Silent Aim", "FEATURE", 0, Settings::silentAimEnabled);
 			DrawKeybindProp("ESP", "FEATURE", 0, Settings::espEnabled);
 
@@ -2124,9 +2702,11 @@ int main()
 				POINT mousePos{};
 				GetCursorPos(&mousePos);
 
-				for (RBX::Instance plr : playersList)
+				for (size_t pi = 0; pi < playersList.size(); ++pi)
 				{
-					if (plr.name() == localPlayer.name() || IsFriend(plr.name()))
+					RBX::Instance plr{ playersList[pi] };
+					const std::string plrName{ GetPlayersListName(pi, plr) };
+					if (plrName == localPlayer.name() || IsFriend(plrName))
 						continue;
 
 					RBX::Instance lockPart{ resolveLockPart(plr, Settings::aimbotLockPart, mousePos, visualEngine) };
@@ -2288,9 +2868,11 @@ int main()
 			POINT mousePos;
 			GetCursorPos(&mousePos);
 
-			for (RBX::Instance plr : playersList)
+			for (size_t pi = 0; pi < playersList.size(); ++pi)
 			{
-				if (plr.name() == localPlayer.name() || IsFriend(plr.name()))
+				RBX::Instance plr{ playersList[pi] };
+				const std::string plrName{ GetPlayersListName(pi, plr) };
+				if (plrName == localPlayer.name() || IsFriend(plrName))
 				{
 					continue;
 				}
@@ -2328,12 +2910,14 @@ int main()
 		// Low-end: draw ESP every other frame (aim stays every tick).
 		static unsigned espFrame{ 0 };
 		++espFrame;
-		const bool drawEspThisFrame{ Settings::highEndVisuals || (espFrame % 2u) == 0u };
+		const bool drawEspThisFrame{ Settings::highEndVisuals || Settings::sessionBoost || (espFrame % 2u) == 0u };
 
 		if (Settings::espEnabled && drawEspThisFrame && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
 		{
-			for (RBX::Instance plr : playersList)
+			for (size_t pi = 0; pi < playersList.size(); ++pi)
 			{
+				RBX::Instance plr{ playersList[pi] };
+				const std::string plrName{ GetPlayersListName(pi, plr) };
 				if (Settings::espIgnoreDeadPlrs)
 				{
 					float health{ RBX::Memory::read<float>((void*)((uintptr_t)plr.findFirstChild("Humanoid").address + Offsets::Health)) };
@@ -2344,12 +2928,12 @@ int main()
 					}
 				}
 
-				if (plr.name() == localPlayer.name())
+				if (plrName == localPlayer.name())
 				{
 					continue;
 				}
 
-				const bool friendMarked{ IsFriend(plr.name()) };
+				const bool friendMarked{ IsFriend(plrName) };
 				const ImVec4 drawColor{ friendMarked ? ImVec4(0.15f, 1.0f, 0.25f, 1.0f) : Settings::espColor };
 
 				RBX::Instance torso{ plr.findFirstChild("Torso") };
@@ -2444,7 +3028,7 @@ int main()
 				}
 
 				if (Settings::espShowName)
-					drawList->AddText({ BOX_TOP_DRAW.x - ImGui::CalcTextSize(plr.name().c_str()).x * 0.5f, BOX_TOP_DRAW.y - ImGui::CalcTextSize(plr.name().c_str()).y - 5.0f }, IM_COL32_WHITE, plr.name().c_str());
+					drawList->AddText({ BOX_TOP_DRAW.x - ImGui::CalcTextSize(plrName.c_str()).x * 0.5f, BOX_TOP_DRAW.y - ImGui::CalcTextSize(plrName.c_str()).y - 5.0f }, IM_COL32_WHITE, plrName.c_str());
 
 				if (Settings::espShowDistance)
 				{
@@ -2467,28 +3051,37 @@ int main()
 		}
 
 		{
-			ImDrawList* boltList{ ImGui::GetBackgroundDrawList() };
-			for (RBX::Instance plr : playersList)
+			ImDrawList* markList{ ImGui::GetBackgroundDrawList() };
+			for (RBX::Instance player : players.getChildren())
 			{
-				if (plr.name() == localPlayer.name())
+				if (player.className() != "Player")
 					continue;
-				RBX::Instance plrHum{ plr.findFirstChild("Humanoid") };
+				RBX::Instance model{ player.getModelInstance() };
+				RBX::Instance plrHum{ model.findFirstChild("Humanoid") };
 				if (!IsSmiteUser(plrHum))
 					continue;
-				RBX::Instance head{ plr.findFirstChild("Head") };
+				RBX::Instance head{ model.findFirstChild("Head") };
 				if (!head.address)
 					continue;
 				RBX::Vector2 sp{ visualEngine.worldToScreen(head.getPosition()) };
 				if (sp.x == 0 && sp.y == 0)
 					continue;
-				DrawLightningBolt(boltList, ImVec2(sp.x, sp.y));
+				const float s = 28.0f;
+				const ImVec2 a(sp.x - s * 0.5f, sp.y - s - 16.0f);
+				const ImVec2 b(a.x + s, a.y + s);
+				if (dkLogoImg)
+					markList->AddImage((void*)dkLogoImg, a, b);
+				else
+					DrawLightningBolt(markList, ImVec2(sp.x, sp.y));
 			}
 		}
 
 		if (Settings::tracersEnabled && Settings::highEndVisuals && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
 		{
-			for (RBX::Instance plr : playersList)
+			for (size_t pi = 0; pi < playersList.size(); ++pi)
 			{
+				RBX::Instance plr{ playersList[pi] };
+				const std::string plrName{ GetPlayersListName(pi, plr) };
 				if (Settings::espIgnoreDeadPlrs)
 				{
 					float health{ RBX::Memory::read<float>((void*)((uintptr_t)plr.findFirstChild("Humanoid").address + Offsets::Health)) };
@@ -2499,7 +3092,7 @@ int main()
 					}
 				}
 
-				if (plr.name() == localPlayer.name() || IsFriend(plr.name()))
+				if (plrName == localPlayer.name() || IsFriend(plrName))
 				{
 					continue;
 				}
@@ -2542,7 +3135,7 @@ int main()
 			RBX::Instance targetMi{ targetPlr.getModelInstance() };
 			RBX::Instance targetHrp{ targetMi.findFirstChild("HumanoidRootPart") };
 			RBX::Instance targetHum{ targetMi.findFirstChild("Humanoid") };
-			void* targetPrim{ targetHrp.address ? targetHrp.getPrimitive() : nullptr };
+			void* targetPrim{ (targetHrp.address && IsSmiteUser(targetHum)) ? targetHrp.getPrimitive() : nullptr };
 
 			if (targetPrim)
 			{
@@ -2596,8 +3189,30 @@ int main()
 			}
 		}
 
-		// Walk / Jump continuous toggles
+		// Walk / Jump key toggles + continuous apply
 		{
+			static bool walkKeyPrev{ false };
+			static bool jumpKeyPrev{ false };
+			if (Settings::walkSpeedKey != 0)
+			{
+				const bool walkDown{ IsBindDown(Settings::walkSpeedKey) };
+				if (walkDown && !walkKeyPrev)
+					Settings::walkSpeedEnabled = !Settings::walkSpeedEnabled;
+				walkKeyPrev = walkDown;
+			}
+			else
+				walkKeyPrev = false;
+
+			if (Settings::jumpPowerKey != 0)
+			{
+				const bool jumpDown{ IsBindDown(Settings::jumpPowerKey) };
+				if (jumpDown && !jumpKeyPrev)
+					Settings::jumpPowerEnabled = !Settings::jumpPowerEnabled;
+				jumpKeyPrev = jumpDown;
+			}
+			else
+				jumpKeyPrev = false;
+
 			static bool walkWasOn{ false };
 			static bool jumpWasOn{ false };
 			static float savedWalk{ 16.0f };
@@ -2910,7 +3525,31 @@ int main()
 
 		renderer.EndRender();
 
-		Sleep(Settings::mainLoopDelay);
+		{
+			static bool boostApplied{ false };
+			if (Settings::sessionBoost && !boostApplied)
+			{
+				SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+				HWND rbxWnd{ FindWindowW(NULL, L"Roblox") };
+				if (rbxWnd)
+				{
+					DWORD rbxPid = 0;
+					GetWindowThreadProcessId(rbxWnd, &rbxPid);
+					if (rbxPid)
+					{
+						HANDLE rbxProc{ OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, rbxPid) };
+						if (rbxProc)
+						{
+							SetPriorityClass(rbxProc, ABOVE_NORMAL_PRIORITY_CLASS);
+							CloseHandle(rbxProc);
+						}
+					}
+				}
+				boostApplied = true;
+			}
+		}
+
+		Sleep(Settings::sessionBoost ? 0 : Settings::mainLoopDelay);
 	}
 
 	renderer.Shutdown();

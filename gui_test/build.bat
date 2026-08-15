@@ -13,7 +13,7 @@ call "%VCVARS%" >nul
 if not exist "bin" mkdir bin
 
 cl /nologo /EHsc /O2 /std:c++17 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN ^
-  /I"..\imgui" /I"." ^
+  /I"..\imgui" /I"..\inc" /I"." ^
   main.cpp ^
   ..\imgui\imgui.cpp ^
   ..\imgui\imgui_draw.cpp ^
@@ -22,7 +22,7 @@ cl /nologo /EHsc /O2 /std:c++17 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN ^
   ..\imgui\imgui_impl_win32.cpp ^
   ..\imgui\imgui_impl_dx11.cpp ^
   /Fe:bin\GuiStyleTest.exe /Fo:bin\ ^
-  /link /SUBSYSTEM:WINDOWS d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib
+  /link /SUBSYSTEM:WINDOWS d3d11.lib dxgi.lib user32.lib gdi32.lib shell32.lib xinput.lib
 
 if errorlevel 1 (
   echo Build failed.

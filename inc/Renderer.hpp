@@ -344,4 +344,40 @@ public:
 
         return srv;
     }
+
+    ID3D11ShaderResourceView* LoadTextureFromMemory(const unsigned char* data, int dataSize, int& w, int& h)
+    {
+        if (!data || dataSize <= 0) return nullptr;
+
+        int x, y, channels;
+        unsigned char* pixels{ stbi_load_from_memory(data, dataSize, &x, &y, &channels, 4) };
+        if (!pixels) return nullptr;
+
+        w = x;
+        h = y;
+
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = x;
+        desc.Height = y;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+        D3D11_SUBRESOURCE_DATA sub{};
+        sub.pSysMem = pixels;
+        sub.SysMemPitch = x * 4;
+
+        ID3D11Texture2D* tex = nullptr;
+        pd3dDevice->CreateTexture2D(&desc, &sub, &tex);
+        stbi_image_free(pixels);
+        if (!tex) return nullptr;
+
+        ID3D11ShaderResourceView* srv{ nullptr };
+        pd3dDevice->CreateShaderResourceView(tex, nullptr, &srv);
+        tex->Release();
+        return srv;
+    }
 };

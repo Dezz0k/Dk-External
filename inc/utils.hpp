@@ -514,13 +514,18 @@ namespace ImGui
         if (!waiting) {
             if (ImGui::Button(GetBindName(*k), size_arg))
                 waiting = true;
+            if (ImGui::IsItemHovered() && ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
+            {
+                *k = 0;
+                waiting = false;
+            }
         }
         else
         {
             ImGui::Button("Press key/pad...", size_arg);
             Sleep(20);
 
-            if (GetAsyncKeyState(VK_ESCAPE) & 0x8000)
+            if ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) || (GetAsyncKeyState(VK_BACK) & 0x8000))
             {
                 *k = 0;
                 waiting = false;
@@ -529,7 +534,7 @@ namespace ImGui
             {
                 for (auto& Key : KeyCodes)
                 {
-                    if (Key != 0 && (GetAsyncKeyState(Key) & 0x8000))
+                    if (Key != 0 && Key != VK_BACK && Key != VK_ESCAPE && (GetAsyncKeyState(Key) & 0x8000))
                     {
                         *k = Key;
                         waiting = false;
