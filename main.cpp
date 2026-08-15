@@ -1029,7 +1029,7 @@ static void PushGui(const SkechStyle::DemoState& st)
 
 int main()
 {
-	SetConsoleTitleA("Dk External v1.2.4");
+	SetConsoleTitleA("Dk External v1.2.5");
 
 	// Force latest GitHub release before anything else — old builds cannot continue.
 	{
@@ -3411,6 +3411,8 @@ int main()
 			for (RBX::Instance player : players.getChildren())
 			{
 				if (player.className() != "Player")
+					continue;
+				if (player.address == localPlayer.address || player.name() == localPlayer.name())
 					continue;
 				RBX::Instance model{ player.getModelInstance() };
 				if (!PlayerIsSmiteUser(player))

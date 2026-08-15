@@ -57,7 +57,7 @@ public:
         hwnd = CreateWindowEx(
             WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
             wc.lpszClassName,
-            L"Dk External v1.2.4",
+            L"Dk External v1.2.5",
             WS_POPUP,
             0,
             0,
