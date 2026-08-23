@@ -43,6 +43,7 @@ namespace Offsets
 	inline uintptr_t Dimensions{ offsets::VisualEngine::Dimensions };
 	inline uintptr_t DisplayName{ offsets::Player::DisplayName };
 	inline uintptr_t EvaluateStateMachine{ offsets::Humanoid::EvaluateStateMachine };
+	inline uintptr_t AutoRotate{ offsets::Humanoid::AutoRotate };
 	inline uintptr_t FOV{ offsets::Camera::FOV };
 	inline uintptr_t FakeDataModelPointer{ offsets::FakeDataModel::Pointer };
 	inline uintptr_t FakeDataModelToDataModel{ offsets::FakeDataModel::ToRealDataModel };

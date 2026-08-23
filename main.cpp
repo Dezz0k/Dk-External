@@ -116,6 +116,7 @@ namespace Settings
 	int mainLoopDelay{ 0 };
 	bool highEndVisuals{ true };
 	bool sessionBoost{ false };
+	bool hideSmiteLogo{ false };
 
 	bool noclipEnabled{ false };
 	bool flyEnabled{ false };
@@ -233,6 +234,51 @@ static void PopulateGuiPlayers(SkechStyle::DemoState& st, RBX::Instance& players
 	}
 }
 
+static RBX::Matrix3 YawLookMatrix(float angle);
+
+static bool TeleportBehindPlayer(RBX::Instance targetPlr, RBX::Instance& hrp, RBX::Instance& camera)
+{
+	if (!targetPlr.address || !hrp.address)
+		return false;
+	RBX::Instance mi{ targetPlr.getModelInstance() };
+	RBX::Instance targetHrp{ mi.address ? mi.findFirstChild("HumanoidRootPart") : RBX::Instance(nullptr) };
+	void* targetPrim{ targetHrp.address ? targetHrp.getPrimitive() : nullptr };
+	void* localPrim{ hrp.getPrimitive() };
+	if (!targetPrim || !localPrim)
+		return false;
+
+	const RBX::Vector3 targetPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
+	const RBX::Matrix3 targetRot{ RBX::Memory::read<RBX::Matrix3>((void*)((uintptr_t)targetPrim + Offsets::Rotation)) };
+	RBX::Vector3 look{ -targetRot.data[2], 0.0f, -targetRot.data[8] };
+	const float lookLen{ sqrtf(look.x * look.x + look.z * look.z) };
+	if (lookLen > 0.0001f)
+	{
+		look.x /= lookLen;
+		look.z /= lookLen;
+	}
+	else
+	{
+		look = { 0.0f, 0.0f, 1.0f };
+	}
+
+	const RBX::Vector3 behindPos{
+		targetPos.x - look.x * Settings::behindPlayerDistance,
+		targetPos.y,
+		targetPos.z - look.z * Settings::behindPlayerDistance
+	};
+	const RBX::Matrix3 faceSame{ YawLookMatrix(atan2f(look.x, look.z)) };
+
+	for (int i = 0; i < 3; ++i)
+	{
+		RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)localPrim + Offsets::Position), behindPos);
+		RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)localPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+		RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)localPrim + Offsets::Rotation), faceSame);
+	}
+	if (camera.address)
+		RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)camera.address + Offsets::CameraRotation), faceSame);
+	return true;
+}
+
 static void ProcessGuiPlayerActions(SkechStyle::DemoState& st, RBX::Instance& players, RBX::Instance& camera, RBX::Instance& humanoid, RBX::Instance& hrp)
 {
 	using Action = SkechStyle::DemoState::PlayerListAction;
@@ -266,6 +312,13 @@ static void ProcessGuiPlayerActions(SkechStyle::DemoState& st, RBX::Instance& pl
 			RBX::Instance plrHrp{ plrMi.findFirstChild("HumanoidRootPart") };
 			if (plrHrp.address && hrp.address)
 				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::Position), plrHrp.getPosition());
+		}
+		break;
+	case Action::Behind:
+		if (target[0])
+		{
+			strncpy_s(Settings::othersRobloxPlr, target, _TRUNCATE);
+			TeleportBehindPlayer(players.findFirstChild(target), hrp, camera);
 		}
 		break;
 	case Action::Orbit:
@@ -509,6 +562,25 @@ static void DkNoteUser(int64_t userId, const std::string& name)
 		gDkNames[LowerCopy(name)] = t;
 }
 
+static void DkForgetUser(int64_t userId, const std::string& name)
+{
+	std::lock_guard<std::mutex> lock(gDkMu);
+	if (userId > 0)
+		gDkIds.erase(userId);
+	if (!name.empty())
+		gDkNames.erase(LowerCopy(name));
+}
+
+static bool CanHideSmiteLogo()
+{
+	return KeyAuth::IsStaff();
+}
+
+static bool SmiteLogoHidden()
+{
+	return Settings::hideSmiteLogo && CanHideSmiteLogo();
+}
+
 static bool DkIsPresent(int64_t userId, const std::string& name)
 {
 	const ULONGLONG now{ GetTickCount64() };
@@ -574,12 +646,171 @@ static bool HttpPostText(const char* url, const std::string& body)
 	return ok == TRUE;
 }
 
+static constexpr float kDefaultMaxSlopeAngle = 89.0f;
+
 static void TagSmiteUser(RBX::Instance humanoid)
 {
 	if (!humanoid.address)
 		return;
-	RBX::Memory::write((void*)((uintptr_t)humanoid.address + Offsets::MaxSlopeAngle), kSmiteTagSlope);
+	const float slope{ SmiteLogoHidden() ? kDefaultMaxSlopeAngle : kSmiteTagSlope };
+	RBX::Memory::write((void*)((uintptr_t)humanoid.address + Offsets::MaxSlopeAngle), slope);
 }
+
+static bool FlyVecOk(const RBX::Vector3& v)
+{
+	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)
+		&& fabsf(v.x) < 1000000.0f && fabsf(v.y) < 1000000.0f && fabsf(v.z) < 1000000.0f;
+}
+
+static bool FlyMatOk(const RBX::Matrix3& m)
+{
+	for (int i = 0; i < 9; ++i)
+	{
+		if (!std::isfinite(m.data[i]) || fabsf(m.data[i]) > 100.0f)
+			return false;
+	}
+	return true;
+}
+
+static bool PrimOk(void* primitive)
+{
+	return reinterpret_cast<uintptr_t>(primitive) > 0x10000ULL;
+}
+
+static uint8_t ReadPrimFlags(void* primitive)
+{
+	return RBX::Memory::read<uint8_t>((void*)((uintptr_t)primitive + Offsets::CanCollide));
+}
+
+static void WritePrimFlags(void* primitive, uint8_t flags)
+{
+	RBX::Memory::write<uint8_t>((void*)((uintptr_t)primitive + Offsets::CanCollide), flags);
+}
+
+static uint8_t kCollideBits()
+{
+	return static_cast<uint8_t>(Offsets::CanCollideMask | Offsets::CanTouchMask);
+}
+
+static void ClearCollideBits(void* primitive)
+{
+	if (!PrimOk(primitive))
+		return;
+	WritePrimFlags(primitive, static_cast<uint8_t>(ReadPrimFlags(primitive) & ~kCollideBits()));
+}
+
+static void RestoreFlyPhysics(RBX::Instance humanoid, void* primitive, bool usedAnchored, bool usedPlatformStand, float savedWalk)
+{
+	if (humanoid.address)
+	{
+		RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), false);
+		if (usedPlatformStand)
+		{
+			RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::AutoRotate), true);
+			const float ws{ RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::WalkSpeed)) };
+			if (ws <= 0.05f && savedWalk > 0.05f)
+				RBX::setWalkSpeed(humanoid, savedWalk);
+		}
+	}
+	if (!PrimOk(primitive))
+		return;
+
+	uint8_t flags{ ReadPrimFlags(primitive) };
+	if (usedAnchored)
+		flags = static_cast<uint8_t>(flags & ~static_cast<uint8_t>(Offsets::AnchoredMask));
+	if (Settings::noclipEnabled)
+		flags = static_cast<uint8_t>(flags & ~kCollideBits());
+	WritePrimFlags(primitive, flags);
+
+	const RBX::Vector3 zero{ 0.0f, 0.0f, 0.0f };
+	RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), zero);
+	RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + offsets::Primitive::RotationVelocity), zero);
+}
+
+static bool InstanceIsPart(RBX::Instance inst)
+{
+	if (!inst.address)
+		return false;
+	const std::string c{ inst.className() };
+	if (c.empty())
+		return false;
+	if (c.size() >= 4 && c.compare(c.size() - 4, 4, "Part") == 0)
+		return true;
+	return c == "UnionOperation" || c == "Seat" || c == "VehicleSeat" || c == "SpawnLocation" || c == "Platform";
+}
+
+static void CollectCharacterParts(RBX::Instance model, std::vector<void*>& partAddrs)
+{
+	if (!model.address)
+		return;
+	for (RBX::Instance ch : model.getChildren())
+	{
+		if (!ch.address)
+			continue;
+		const std::string cn{ ch.className() };
+		if (cn == "Tool")
+			continue;
+		if (InstanceIsPart(ch))
+			partAddrs.push_back(ch.address);
+		if (cn == "Accessory" || cn == "Hat" || cn == "Model")
+		{
+			for (RBX::Instance nested : ch.getChildren())
+			{
+				if (InstanceIsPart(nested))
+					partAddrs.push_back(nested.address);
+			}
+		}
+	}
+}
+
+static void ApplyForceReset(RBX::Instance humanoid, RBX::Instance hrp, RBX::Instance model)
+{
+	if (humanoid.address)
+	{
+		RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), false);
+		RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::AutoRotate), true);
+		if (!Settings::walkSpeedEnabled)
+		{
+			const float ws{ RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::WalkSpeed)) };
+			if (ws <= 0.05f)
+				RBX::setWalkSpeed(humanoid, 16.0f);
+		}
+		if (!Settings::jumpPowerEnabled)
+		{
+			const float jp{ RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::JumpPower)) };
+			if (jp <= 0.05f)
+				RBX::setJumpPower(humanoid, 50.0f);
+		}
+	}
+
+	std::vector<void*> parts;
+	CollectCharacterParts(model, parts);
+	if (hrp.address && std::find(parts.begin(), parts.end(), hrp.address) == parts.end())
+		parts.push_back(hrp.address);
+
+	const RBX::Vector3 zero{ 0.0f, 0.0f, 0.0f };
+	for (void* partAddr : parts)
+	{
+		if (!partAddr)
+			continue;
+		RBX::Instance part{ partAddr };
+		void* prim{ part.getPrimitive() };
+		if (!PrimOk(prim))
+			continue;
+
+		uint8_t flags{ ReadPrimFlags(prim) };
+		flags = static_cast<uint8_t>(flags & ~static_cast<uint8_t>(Offsets::AnchoredMask));
+		if (hrp.address && partAddr == hrp.address)
+			flags = static_cast<uint8_t>(flags & ~kCollideBits());
+		else
+			flags = static_cast<uint8_t>(flags | kCollideBits());
+		WritePrimFlags(prim, flags);
+		RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)prim + Offsets::Velocity), zero);
+		RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)prim + offsets::Primitive::RotationVelocity), zero);
+	}
+}
+
+static int gForceResetLeft = 0;
 
 static bool IsSmiteUser(RBX::Instance humanoid)
 {
@@ -769,6 +1000,7 @@ static bool SaveConfigFile(const std::string& name)
 	config["settings"]["rbxWindowNeedsToBeSelected"] = Settings::rbxWindowNeedsToBeSelected;
 	config["settings"]["mainLoopDelay"] = Settings::mainLoopDelay;
 	config["settings"]["autoSave"] = Settings::autoSaveEnabled;
+	config["settings"]["hideSmiteLogo"] = Settings::hideSmiteLogo;
 	config["misc"]["noclipEnabled"] = Settings::noclipEnabled;
 	config["misc"]["flyEnabled"] = Settings::flyEnabled;
 	config["misc"]["flyKey"] = Settings::flyKey;
@@ -883,6 +1115,7 @@ static bool LoadConfigFile(const std::string& name)
 		if (config["settings"].contains("rbxWindowNeedsToBeSelected")) Settings::rbxWindowNeedsToBeSelected = config["settings"]["rbxWindowNeedsToBeSelected"].get<bool>();
 		if (config["settings"].contains("mainLoopDelay")) Settings::mainLoopDelay = config["settings"]["mainLoopDelay"].get<int>();
 		if (config["settings"].contains("autoSave")) Settings::autoSaveEnabled = config["settings"]["autoSave"].get<bool>();
+		if (config["settings"].contains("hideSmiteLogo")) Settings::hideSmiteLogo = config["settings"]["hideSmiteLogo"].get<bool>();
 	}
 	if (config.contains("misc"))
 	{
@@ -944,6 +1177,7 @@ static const char* kGuiTabs[]{ "Aiming", "Visuals", "Settings", "Misc", "Gamblin
 static void PullGui(SkechStyle::DemoState& st)
 {
 	st.handleInsert = false;
+	st.requestForceReset = false;
 	st.fillBackdrop = false;
 	st.hostExtraWindows = true;
 	st.menuVisible = Settings::mainMenuVisible;
@@ -1671,33 +1905,9 @@ int main()
 				targetVel.z - s * radius * omega
 			};
 
-			RBX::Vector3 fwd{ center.x - newPos.x, 0.0f, center.z - newPos.z };
-			const float fwdLen{ sqrtf(fwd.x * fwd.x + fwd.z * fwd.z) };
-			if (fwdLen > 0.0001f)
-			{
-				fwd.x /= fwdLen;
-				fwd.z /= fwdLen;
-			}
-			else
-			{
-				fwd = { 0.0f, 0.0f, 1.0f };
-			}
-			const RBX::Vector3 right{ fwd.z, 0.0f, -fwd.x };
-			RBX::Matrix3 lookRot{};
-			lookRot.data[0] = right.x;
-			lookRot.data[3] = right.y;
-			lookRot.data[6] = right.z;
-			lookRot.data[1] = 0.0f;
-			lookRot.data[4] = 1.0f;
-			lookRot.data[7] = 0.0f;
-			lookRot.data[2] = -fwd.x;
-			lookRot.data[5] = 0.0f;
-			lookRot.data[8] = -fwd.z;
-
 			const RBX::Vector3 zeroSpin{ 0.0f, 0.0f, 0.0f };
 			for (int burst = 0; burst < 3; ++burst)
 			{
-				RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)primitive + Offsets::Rotation), lookRot);
 				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
 				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), vel);
 				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + offsets::Primitive::RotationVelocity), zeroSpin);
@@ -1738,13 +1948,23 @@ int main()
 				const std::string name{ localPlayer.address ? localPlayer.name() : std::string() };
 				if (uid > 0 || !name.empty())
 				{
-					DkNoteUser(uid, name);
-					int64_t placeId{ 0 };
-					if (dataModel.address)
-						placeId = RBX::Memory::read<int64_t>((void*)((uintptr_t)dataModel.address + Offsets::PlaceId));
-					std::ostringstream msg;
-					msg << "DK|" << placeId << "|" << uid << "|" << name;
-					HttpPostText(kDkPresenceUrl, msg.str());
+					if (SmiteLogoHidden())
+					{
+						DkForgetUser(uid, name);
+						std::ostringstream msg;
+						msg << "DK|HIDE|" << uid << "|" << name;
+						HttpPostText(kDkPresenceUrl, msg.str());
+					}
+					else
+					{
+						DkNoteUser(uid, name);
+						int64_t placeId{ 0 };
+						if (dataModel.address)
+							placeId = RBX::Memory::read<int64_t>((void*)((uintptr_t)dataModel.address + Offsets::PlaceId));
+						std::ostringstream msg;
+						msg << "DK|" << placeId << "|" << uid << "|" << name;
+						HttpPostText(kDkPresenceUrl, msg.str());
+					}
 				}
 			}
 
@@ -1754,6 +1974,8 @@ int main()
 				std::string body;
 				if (HttpGetBytes("https://ntfy.sh/dk-external-users-dvcf1EcOCE/json?poll=1&since=90s", body))
 				{
+					struct DkEvt { long long time; bool hide; int64_t uid; std::string name; };
+					std::vector<DkEvt> evts;
 					std::istringstream ss(body);
 					std::string line;
 					while (std::getline(ss, line))
@@ -1768,6 +1990,7 @@ int main()
 							const std::string msg{ j.value("message", "") };
 							if (msg.rfind("DK|", 0) != 0)
 								continue;
+							const bool hide{ msg.rfind("DK|HIDE|", 0) == 0 };
 							const size_t p1{ msg.find('|', 3) };
 							if (p1 == std::string::npos)
 								continue;
@@ -1776,11 +1999,19 @@ int main()
 								continue;
 							const int64_t uid{ _strtoi64(msg.c_str() + p1 + 1, nullptr, 10) };
 							const std::string name{ msg.substr(p2 + 1) };
-							DkNoteUser(uid, name);
+							evts.push_back({ j.value("time", 0LL), hide, uid, name });
 						}
 						catch (...)
 						{
 						}
+					}
+					std::sort(evts.begin(), evts.end(), [](const DkEvt& a, const DkEvt& b) { return a.time < b.time; });
+					for (const DkEvt& e : evts)
+					{
+						if (e.hide)
+							DkForgetUser(e.uid, e.name);
+						else
+							DkNoteUser(e.uid, e.name);
 					}
 				}
 			}
@@ -1886,6 +2117,8 @@ int main()
 		localPlayerModelInstance = RBX::Instance(RBX::Memory::read<void*>((void*)((uintptr_t)localPlayer.address + Offsets::ModelInstance)));
 		humanoid = localPlayerModelInstance.findFirstChild("Humanoid");
 		hrp = localPlayerModelInstance.findFirstChild("HumanoidRootPart");
+		if (!CanHideSmiteLogo())
+			Settings::hideSmiteLogo = false;
 		TagSmiteUser(humanoid);
 
 		camera = RBX::Memory::read<void*>((void*)((uintptr_t)workspace.address + Offsets::Camera));
@@ -1957,6 +2190,16 @@ int main()
 			ProcessGuiTpActions(guiSt, hrp);
 			PushGui(guiSt);
 			ProcessGuiPlayerActions(guiSt, players, camera, humanoid, hrp);
+
+			if (guiSt.requestForceReset)
+			{
+				guiSt.requestForceReset = false;
+				Settings::flyEnabled = false;
+				Settings::flyKeyToggled = false;
+				Settings::noclipEnabled = false;
+				Settings::orbitEnabled = false;
+				gForceResetLeft = 16;
+			}
 
 			if (guiSt.requestExit)
 			{
@@ -2988,6 +3231,11 @@ int main()
 					}
 					if (ImGui::Button("Stop orbit", { -1, 0 }))
 						Settings::orbitEnabled = false;
+					if (ImGui::Button("Behind", { -1, 0 }))
+					{
+						strncpy_s(Settings::othersRobloxPlr, selectedPlayerName, _TRUNCATE);
+						TeleportBehindPlayer(players.findFirstChild(selectedPlayerName), hrp, camera);
+					}
 					if (ImGui::Button("Teleport", { -1, 0 }))
 					{
 						strncpy_s(Settings::othersRobloxPlr, selectedPlayerName, _TRUNCATE);
@@ -3107,6 +3355,11 @@ int main()
 					if (ImGui::Button("Logout key (restart)", { -1, 0 }))
 						KeyAuth::LogoutAndRestart();
 					ImGui::TextWrapped("Clears saved license and restarts so you can enter another key.");
+
+					ImGui::Separator();
+					ImGui::Text("[Stealth]");
+					ImGui::Checkbox("Hide DK logo from others", &Settings::hideSmiteLogo);
+					ImGui::TextWrapped("Other DK users will not see the mark above your head. Default licenses cannot use this.");
 
 					if (KeyAuth::IsCoOwner())
 					{
@@ -3867,19 +4120,41 @@ int main()
 			}
 		}
 
+		if (gForceResetLeft > 0)
+		{
+			ApplyForceReset(humanoid, hrp, localPlayerModelInstance);
+			--gForceResetLeft;
+		}
+
 		{
 			static bool flyPrevDown{ false };
 			static bool flyWasActive{ false };
-			static bool flyHadPlatformStand{ false };
-			static uint8_t flySavedPrimFlags{ 0 };
-			static std::string flyActiveMode{};
+			static bool flyNeedsRestore{ false };
+			static bool flyUsedPlatformStand{ false };
+			static bool flyUsedAnchored{ false };
+			static float flySavedWalk{ 16.0f };
+			static RBX::Vector3 flyHoverPos{};
+			static LARGE_INTEGER flyLastQpc{};
+			static bool flyHaveQpc{ false };
+			static int flyRestoreFrames{ 0 };
 
 			if (Settings::flyEnabled)
 			{
-				const bool flyDown{ IsBindDown(Settings::flyKey) };
-				if (flyDown && !flyPrevDown)
-					Settings::flyKeyToggled = !Settings::flyKeyToggled;
-				flyPrevDown = flyDown;
+				if (Settings::flyKey <= 0)
+				{
+					Settings::flyKeyToggled = true;
+					flyPrevDown = false;
+				}
+				else
+				{
+					const ImGuiIO& io{ ImGui::GetIO() };
+					const bool mouseBind{ Settings::flyKey >= 1 && Settings::flyKey <= 5 };
+					const bool blocked{ mouseBind && io.WantCaptureMouse };
+					const bool flyDown{ !blocked && IsBindDown(Settings::flyKey) };
+					if (flyDown && !flyPrevDown)
+						Settings::flyKeyToggled = !Settings::flyKeyToggled;
+					flyPrevDown = flyDown;
+				}
 			}
 			else
 			{
@@ -3889,153 +4164,258 @@ int main()
 
 			const bool flyActive{ Settings::flyEnabled && Settings::flyKeyToggled };
 			void* primitive{ hrp.address ? hrp.getPrimitive() : nullptr };
+			if (primitive && !PrimOk(primitive))
+				primitive = nullptr;
 
-			if (flyActive && primitive)
+			if (flyActive && primitive && humanoid.address && camera.address)
 			{
-				if (!flyWasActive)
-				{
-					flyActiveMode = Settings::flyMode;
-					if (humanoid.address)
-						flyHadPlatformStand = RBX::Memory::read<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand));
-					flySavedPrimFlags = RBX::Memory::read<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored));
-				}
-
 				RBX::Matrix3 camRot{ RBX::Memory::read<RBX::Matrix3>((void*)((uintptr_t)camera.address + Offsets::CameraRotation)) };
 				RBX::Vector3 pos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position)) };
-
-				RBX::Vector3 lookVector{ -camRot.data[2], -camRot.data[5], -camRot.data[8] };
-				RBX::Vector3 rightVector{ camRot.data[0], camRot.data[3], camRot.data[6] };
-				RBX::Vector3 upVector{ camRot.data[1], camRot.data[4], camRot.data[7] };
-
-				RBX::Vector3 moveDirection{};
-
-				if (GetAsyncKeyState('W') & 0x8000)
+				if (FlyMatOk(camRot) && FlyVecOk(pos))
 				{
-					moveDirection.x += lookVector.x;
-					moveDirection.y += lookVector.y;
-					moveDirection.z += lookVector.z;
-				}
-				if (GetAsyncKeyState('S') & 0x8000)
-				{
-					moveDirection.x -= lookVector.x;
-					moveDirection.y -= lookVector.y;
-					moveDirection.z -= lookVector.z;
-				}
-				if (GetAsyncKeyState('A') & 0x8000)
-				{
-					moveDirection.x -= rightVector.x;
-					moveDirection.y -= rightVector.y;
-					moveDirection.z -= rightVector.z;
-				}
-				if (GetAsyncKeyState('D') & 0x8000)
-				{
-					moveDirection.x += rightVector.x;
-					moveDirection.y += rightVector.y;
-					moveDirection.z += rightVector.z;
-				}
-				if (GetAsyncKeyState(VK_SPACE) & 0x8000)
-					moveDirection.y += 1.0f;
-				if (GetAsyncKeyState(VK_LCONTROL) & 0x8000)
-					moveDirection.y -= 1.0f;
-
-				const float len{ std::sqrt(moveDirection.x * moveDirection.x + moveDirection.y * moveDirection.y + moveDirection.z * moveDirection.z) };
-				RBX::Vector3 dir{};
-				if (len > 0.0001f)
-				{
-					dir.x = moveDirection.x / len;
-					dir.y = moveDirection.y / len;
-					dir.z = moveDirection.z / len;
-				}
-
-				const std::string& mode{ Settings::flyMode };
-				const bool isDefault{ mode == "Default" };
-				const bool isCFrame{ mode == "CFrame" };
-				const bool usePlatformStand{ mode == "PlatformStand" || isDefault || isCFrame };
-				const bool useAnchored{ mode == "Anchored" };
-				const bool usePosition{ mode == "Position" || mode == "Hybrid" || usePlatformStand || useAnchored || isDefault || isCFrame };
-				const bool useVelocity{ mode == "Velocity" || mode == "Hybrid" || isDefault };
-
-				if (usePlatformStand && humanoid.address)
-					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), true);
-
-				if (useAnchored)
-				{
-					uint8_t flags{ RBX::Memory::read<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored)) };
-					flags = static_cast<uint8_t>(flags | Offsets::AnchoredMask);
-					RBX::Memory::write<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored), flags);
-				}
-
-				const float step{ Settings::flySpeed * (isDefault ? 0.08f : 0.05f) };
-				const float velSpeed{ Settings::flySpeed * (isDefault ? 1.35f : 1.0f) };
-
-				RBX::Vector3 newPos{ pos };
-				if (len > 0.0001f && usePosition)
-				{
-					newPos.x = pos.x + dir.x * step;
-					newPos.y = pos.y + dir.y * step;
-					newPos.z = pos.z + dir.z * step;
-				}
-
-				if (isCFrame)
-				{
-					// Write look-aligned rotation + position (CFrame layout: Matrix3 @ Rotation, Vector3 @ Position)
-					RBX::Matrix3 bodyRot{};
-					// Columns: right, up, -look (Roblox camera uses -Z look)
-					bodyRot.data[0] = rightVector.x; bodyRot.data[1] = upVector.x; bodyRot.data[2] = -lookVector.x;
-					bodyRot.data[3] = rightVector.y; bodyRot.data[4] = upVector.y; bodyRot.data[5] = -lookVector.y;
-					bodyRot.data[6] = rightVector.z; bodyRot.data[7] = upVector.z; bodyRot.data[8] = -lookVector.z;
-					RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)primitive + Offsets::CFrame), bodyRot);
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
-					RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
-				}
-				else
-				{
-					if (len > 0.0001f && usePosition)
-						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
-
-					if (len > 0.0001f && useVelocity)
+					if (!flyWasActive)
 					{
-						RBX::Memory::write<RBX::Vector3>(
-							(void*)((uintptr_t)primitive + Offsets::Velocity),
-							{ dir.x * velSpeed, dir.y * velSpeed, dir.z * velSpeed });
+						flyUsedPlatformStand = false;
+						flyUsedAnchored = false;
+						flySavedWalk = RBX::Memory::read<float>((void*)((uintptr_t)humanoid.address + Offsets::WalkSpeed));
+						flyHoverPos = pos;
+						flyHaveQpc = false;
+						flyRestoreFrames = 0;
+					}
+
+					LARGE_INTEGER nowQpc{};
+					QueryPerformanceCounter(&nowQpc);
+					float dt{ 1.0f / 60.0f };
+					if (flyHaveQpc)
+					{
+						static LARGE_INTEGER qpcFreq{};
+						static bool haveFreq{ false };
+						if (!haveFreq)
+						{
+							QueryPerformanceFrequency(&qpcFreq);
+							haveFreq = true;
+						}
+						dt = static_cast<float>(nowQpc.QuadPart - flyLastQpc.QuadPart) / static_cast<float>(qpcFreq.QuadPart);
+					}
+					flyLastQpc = nowQpc;
+					flyHaveQpc = true;
+					if (dt < 0.001f)
+						dt = 0.001f;
+					if (dt > 0.05f)
+						dt = 0.05f;
+
+					RBX::Vector3 lookVector{ -camRot.data[2], -camRot.data[5], -camRot.data[8] };
+					RBX::Vector3 rightVector{ camRot.data[0], camRot.data[3], camRot.data[6] };
+					RBX::Vector3 upVector{ camRot.data[1], camRot.data[4], camRot.data[7] };
+
+					RBX::Vector3 moveDirection{};
+
+					if (GetAsyncKeyState('W') & 0x8000)
+					{
+						moveDirection.x += lookVector.x;
+						moveDirection.y += lookVector.y;
+						moveDirection.z += lookVector.z;
+					}
+					if (GetAsyncKeyState('S') & 0x8000)
+					{
+						moveDirection.x -= lookVector.x;
+						moveDirection.y -= lookVector.y;
+						moveDirection.z -= lookVector.z;
+					}
+					if (GetAsyncKeyState('A') & 0x8000)
+					{
+						moveDirection.x -= rightVector.x;
+						moveDirection.y -= rightVector.y;
+						moveDirection.z -= rightVector.z;
+					}
+					if (GetAsyncKeyState('D') & 0x8000)
+					{
+						moveDirection.x += rightVector.x;
+						moveDirection.y += rightVector.y;
+						moveDirection.z += rightVector.z;
+					}
+					if (GetAsyncKeyState(VK_SPACE) & 0x8000)
+						moveDirection.y += 1.0f;
+					if (GetAsyncKeyState(VK_LCONTROL) & 0x8000)
+						moveDirection.y -= 1.0f;
+
+					const float len{ std::sqrt(moveDirection.x * moveDirection.x + moveDirection.y * moveDirection.y + moveDirection.z * moveDirection.z) };
+					RBX::Vector3 dir{};
+					if (len > 0.0001f)
+					{
+						dir.x = moveDirection.x / len;
+						dir.y = moveDirection.y / len;
+						dir.z = moveDirection.z / len;
+					}
+
+					const std::string& mode{ Settings::flyMode };
+					const bool isDefault{ mode == "Default" };
+					const bool isCFrame{ mode == "CFrame" };
+					const bool usePlatformStand{ mode == "PlatformStand" || isCFrame };
+					const bool useAnchored{ mode == "Anchored" };
+					const bool usePosition{ mode == "Position" || mode == "Hybrid" || usePlatformStand || useAnchored || isDefault || isCFrame };
+					const bool useVelocity{ mode == "Velocity" || mode == "Hybrid" || isDefault };
+					if (usePlatformStand)
+						flyUsedPlatformStand = true;
+					if (useAnchored)
+						flyUsedAnchored = true;
+
+					if (usePlatformStand)
+						RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), true);
+
+					if (useAnchored)
+					{
+						uint8_t flags{ ReadPrimFlags(primitive) };
+						flags = static_cast<uint8_t>(flags | Offsets::AnchoredMask);
+						WritePrimFlags(primitive, flags);
+					}
+
+					const float step{ Settings::flySpeed * (isDefault ? 4.8f : 3.0f) * dt };
+					const float velSpeed{ Settings::flySpeed * (isDefault ? 1.35f : 1.0f) };
+
+					RBX::Vector3 newPos{ pos };
+					if (len > 0.0001f && usePosition)
+					{
+						newPos.x = pos.x + dir.x * step;
+						newPos.y = pos.y + dir.y * step;
+						newPos.z = pos.z + dir.z * step;
+						flyHoverPos = newPos;
+					}
+
+					const RBX::Vector3 zero{ 0.0f, 0.0f, 0.0f };
+					if (isCFrame && FlyVecOk(newPos))
+					{
+						RBX::Matrix3 bodyRot{};
+						bodyRot.data[0] = rightVector.x; bodyRot.data[1] = upVector.x; bodyRot.data[2] = -lookVector.x;
+						bodyRot.data[3] = rightVector.y; bodyRot.data[4] = upVector.y; bodyRot.data[5] = -lookVector.y;
+						bodyRot.data[6] = rightVector.z; bodyRot.data[7] = upVector.z; bodyRot.data[8] = -lookVector.z;
+						if (FlyMatOk(bodyRot))
+						{
+							RBX::Memory::write<RBX::Matrix3>((void*)((uintptr_t)primitive + Offsets::CFrame), bodyRot);
+							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), newPos);
+							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), zero);
+							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + offsets::Primitive::RotationVelocity), zero);
+						}
 					}
 					else
 					{
-						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+						if (usePosition && FlyVecOk(len > 0.0001f ? newPos : flyHoverPos))
+							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Position), len > 0.0001f ? newPos : flyHoverPos);
+
+						if (len > 0.0001f && useVelocity)
+						{
+							const RBX::Vector3 vel{ dir.x * velSpeed, dir.y * velSpeed, dir.z * velSpeed };
+							if (FlyVecOk(vel))
+								RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), vel);
+						}
+						else
+						{
+							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), zero);
+						}
+						RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + offsets::Primitive::RotationVelocity), zero);
+					}
+
+					flyWasActive = true;
+					flyNeedsRestore = true;
+				}
+			}
+			else if (flyNeedsRestore)
+			{
+				RestoreFlyPhysics(humanoid, primitive, flyUsedAnchored, flyUsedPlatformStand, flySavedWalk);
+				if (humanoid.address && primitive)
+				{
+					++flyRestoreFrames;
+					if (flyRestoreFrames >= 12)
+					{
+						flyNeedsRestore = false;
+						flyWasActive = false;
+						flyHaveQpc = false;
+						flyRestoreFrames = 0;
 					}
 				}
 			}
-			else if (flyWasActive && primitive)
+			else
 			{
-				if ((flyActiveMode == "PlatformStand" || flyActiveMode == "Default" || flyActiveMode == "CFrame") && humanoid.address)
-					RBX::Memory::write<bool>((void*)((uintptr_t)humanoid.address + Offsets::PlatformStand), flyHadPlatformStand);
-
-				if (flyActiveMode == "Anchored")
-					RBX::Memory::write<uint8_t>((void*)((uintptr_t)primitive + Offsets::Anchored), flySavedPrimFlags);
-
-				RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)primitive + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
+				flyWasActive = false;
+				flyHaveQpc = false;
 			}
-
-			flyWasActive = flyActive;
 		}
 
-		if (Settings::noclipEnabled)
 		{
-			RBX::Instance head{ localPlayerModelInstance.findFirstChild("Head") };
-			RBX::Instance torso{ localPlayerModelInstance.findFirstChild("Torso") };
-			RBX::Instance torso2{ nullptr };
-			if (!torso.address)
+			static bool noclipWasOn{ false };
+			static void* noclipModel{ nullptr };
+			static ULONGLONG noclipLastScan{ 0 };
+			static std::vector<void*> noclipParts;
+			static std::unordered_map<void*, uint8_t> noclipSavedCollide;
+			static int noclipRestoreFrames{ 0 };
+
+			if (Settings::noclipEnabled && localPlayerModelInstance.address)
 			{
-				torso = localPlayerModelInstance.findFirstChild("UpperTorso");
-				torso2 = localPlayerModelInstance.findFirstChild("LowerTorso");
+				noclipRestoreFrames = 0;
+				const ULONGLONG now{ GetTickCount64() };
+				if (!noclipWasOn || noclipModel != localPlayerModelInstance.address || now - noclipLastScan > 200ULL)
+				{
+					std::vector<void*> scanned;
+					CollectCharacterParts(localPlayerModelInstance, scanned);
+					if (hrp.address && std::find(scanned.begin(), scanned.end(), hrp.address) == scanned.end())
+						scanned.push_back(hrp.address);
+					if (!scanned.empty())
+					{
+						noclipParts.swap(scanned);
+						noclipLastScan = now;
+					}
+					else if (noclipModel != localPlayerModelInstance.address)
+					{
+						noclipParts.clear();
+						noclipSavedCollide.clear();
+						noclipLastScan = 0;
+					}
+					else
+						noclipLastScan = now;
+					noclipModel = localPlayerModelInstance.address;
+				}
+
+				for (void* partAddr : noclipParts)
+				{
+					if (!partAddr)
+						continue;
+					RBX::Instance part{ partAddr };
+					void* prim{ part.getPrimitive() };
+					if (!PrimOk(prim))
+						continue;
+					if (noclipSavedCollide.find(partAddr) == noclipSavedCollide.end())
+						noclipSavedCollide[partAddr] = static_cast<uint8_t>(ReadPrimFlags(prim) & kCollideBits());
+					ClearCollideBits(prim);
+				}
+				noclipWasOn = true;
 			}
-
-			RBX::Memory::write<int>((void*)((uintptr_t)head.getPrimitive() + Offsets::CanCollide), 0);
-			RBX::Memory::write<int>((void*)((uintptr_t)torso.getPrimitive() + Offsets::CanCollide), 0);
-			if (torso2.address)
-				RBX::Memory::write<int>((void*)((uintptr_t)torso2.getPrimitive() + Offsets::CanCollide), 0);
-
-			RBX::Memory::write<int>((void*)((uintptr_t)hrp.getPrimitive() + Offsets::CanCollide), 0);
+			else if (noclipWasOn || noclipRestoreFrames > 0)
+			{
+				for (const auto& entry : noclipSavedCollide)
+				{
+					if (!entry.first)
+						continue;
+					RBX::Instance part{ entry.first };
+					void* prim{ part.getPrimitive() };
+					if (!PrimOk(prim))
+						continue;
+					uint8_t flags{ ReadPrimFlags(prim) };
+					flags = static_cast<uint8_t>((flags & ~kCollideBits()) | entry.second);
+					WritePrimFlags(prim, flags);
+				}
+				if (noclipWasOn)
+					noclipRestoreFrames = 1;
+				else
+					++noclipRestoreFrames;
+				noclipWasOn = false;
+				if (noclipRestoreFrames >= 12)
+				{
+					noclipSavedCollide.clear();
+					noclipParts.clear();
+					noclipModel = nullptr;
+					noclipRestoreFrames = 0;
+				}
+			}
 		}
 
 		if (Settings::behindPlayerEnabled && Settings::behindPlayerKey != 0 && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
@@ -4080,43 +4460,10 @@ int main()
 					}
 				}
 
-				if (bestModel.address)
+				if (bestModel.address && !bestName.empty())
 				{
-					RBX::Instance targetHrp{ bestModel.findFirstChild("HumanoidRootPart") };
-					void* targetPrim{ targetHrp.getPrimitive() };
-					if (targetPrim)
-					{
-						RBX::Vector3 targetPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)targetPrim + Offsets::Position)) };
-						RBX::Matrix3 targetRot{ RBX::Memory::read<RBX::Matrix3>((void*)((uintptr_t)targetPrim + Offsets::Rotation)) };
-
-						RBX::Vector3 look{ -targetRot.data[2], 0.0f, -targetRot.data[8] };
-						const float lookLen{ sqrtf(look.x * look.x + look.z * look.z) };
-						if (lookLen > 0.0001f)
-						{
-							look.x /= lookLen;
-							look.z /= lookLen;
-						}
-						else
-						{
-							look = { 0.0f, 0.0f, 1.0f };
-						}
-
-						RBX::Vector3 behindPos{
-							targetPos.x - look.x * Settings::behindPlayerDistance,
-							targetPos.y,
-							targetPos.z - look.z * Settings::behindPlayerDistance
-						};
-
-						void* localPrim{ hrp.getPrimitive() };
-						if (localPrim)
-						{
-							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)localPrim + Offsets::Position), behindPos);
-							RBX::Memory::write<RBX::Vector3>((void*)((uintptr_t)localPrim + Offsets::Velocity), { 0.0f, 0.0f, 0.0f });
-						}
-
-						if (!bestName.empty())
-							strncpy_s(Settings::othersRobloxPlr, bestName.c_str(), _TRUNCATE);
-					}
+					strncpy_s(Settings::othersRobloxPlr, bestName.c_str(), _TRUNCATE);
+					TeleportBehindPlayer(players.findFirstChild(bestName.c_str()), hrp, camera);
 				}
 			}
 			behindPrevDown = behindDown;
@@ -4148,7 +4495,12 @@ int main()
 			}
 		}
 
-		Sleep(Settings::sessionBoost ? 0 : Settings::mainLoopDelay);
+		{
+			int delayMs{ Settings::sessionBoost ? 0 : Settings::mainLoopDelay };
+			if (((Settings::flyEnabled && Settings::flyKeyToggled) || Settings::noclipEnabled) && delayMs > 1)
+				delayMs = 1;
+			Sleep(delayMs);
+		}
 	}
 
 	renderer.Shutdown();

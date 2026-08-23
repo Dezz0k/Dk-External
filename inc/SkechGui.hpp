@@ -704,6 +704,7 @@ namespace SkechStyle
 		bool rbxWindowNeedsToBeSelected = true;
 		int mainLoopDelay = 0;
 		bool requestExit = false;
+		bool requestForceReset = false;
 		bool espPreviewOpened = false;
 
 		float tpX = 0, tpY = 0, tpZ = 0;
@@ -792,6 +793,7 @@ namespace SkechStyle
 			Spectate,
 			StopSpectate,
 			Teleport,
+			Behind,
 			Orbit,
 			StopOrbit,
 			ToggleFriend,
@@ -816,6 +818,7 @@ namespace SkechStyle
 		int adminPlayerCount = 1;
 		bool ownerBring = false, ownerFollow = false, ownerSpin = false;
 		bool ownerFreeze = false, ownerFling = false, ownerJumpOnly = false;
+		bool hideSmiteLogo = false;
 
 		float contentFade = 1.0f;
 		float backGlow = 0.0f;
@@ -1138,6 +1141,11 @@ namespace SkechStyle
 						st.playerAction = DemoState::PlayerListAction::Teleport;
 						strncpy_s(st.playerActionTarget, f.name, _TRUNCATE);
 					}
+					if (FullButton("Behind"))
+					{
+						st.playerAction = DemoState::PlayerListAction::Behind;
+						strncpy_s(st.playerActionTarget, f.name, _TRUNCATE);
+					}
 					ImGui::Spacing();
 					if (FullButton(f.isFriend ? "Remove friend" : "Add friend"))
 					{
@@ -1174,6 +1182,9 @@ namespace SkechStyle
 			ImGui::TextDisabled("Subscriptions: (preview)");
 			ImGui::Separator();
 			FullButton("Logout key (restart)");
+			ImGui::Separator();
+			ImGui::TextColored(ColAccent(), "[Stealth] Staff+");
+			CheckboxRow("Hide DK logo from others", &st.hideSmiteLogo);
 			ImGui::Separator();
 			ImGui::TextColored(ColAccent(), "[Trolls] CoOwner+");
 			ComboRow("Target player", &st.adminPlayerIdx, st.adminPlayerNames, st.adminPlayerCount);
@@ -1386,6 +1397,10 @@ namespace SkechStyle
 					ImGui::EndDisabled();
 				}
 			}
+			ImGui::Spacing();
+			ImGui::TextWrapped("If fly or noclip locks your character, force reset unlocks walking and collision.");
+			if (FullButton("Force reset character"))
+				st.requestForceReset = true;
 			ImGui::Spacing();
 			if (FullButton("Exit"))
 				st.requestExit = true;

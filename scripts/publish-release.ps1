@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
 
-    [string]$ExePath = "x64\Release\Dk External v1.2.1.exe",
+    [string]$ExePath = "",
     [string]$AssetName = "DkExternal.exe"
 )
 
@@ -17,6 +17,10 @@ if ($Version.StartsWith("v")) {
     $Version = $Version.Substring(1)
 } else {
     $Tag = "v$Version"
+}
+
+if ([string]::IsNullOrWhiteSpace($ExePath)) {
+    $ExePath = "x64\Release\Dk External v$Version.exe"
 }
 
 if (-not (Test-Path $ExePath)) {

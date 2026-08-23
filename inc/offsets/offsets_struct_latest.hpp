@@ -4,9 +4,9 @@
 /*                  https://offsets.imtheo.lol                  
 /* -------------------------------------------------------------
 /*  Dumped With     : RbxDumperV2                               
-/*  Roblox Version  : version-ddf602d9cfe44005
+/*  Roblox Version  : version-ce0bcd0fbd484804
 /*  Dumper Version  : 2.1.7
-/*  Dumped At       : 22:59 11/08/2026 (GMT)
+/*  Dumped At       : 00:33 18/08/2026 (GMT)
 /*  Total Offsets   : 388
 /* -------------------------------------------------------------
 /*  Join the discord!                                           
@@ -17,7 +17,7 @@
 #include <cstdint>
 #include <string>
 namespace Structs {
-    inline std::string ClientVersion = "version-ddf602d9cfe44005";
+    inline std::string ClientVersion = "version-ce0bcd0fbd484804";
 
     struct AirProperties {
         char pad_0[24];
@@ -36,9 +36,9 @@ namespace Structs {
         bool Looped;
         char pad_3[34];
         uintptr_t Animator;
-        char pad_4[2432];
+        char pad_4[2368];
         bool IsPlaying;
-    }; // sizeof = 2705
+    }; // sizeof = 2641
 
     struct Animator {
         char pad_0[2944];
@@ -174,13 +174,13 @@ namespace Structs {
         int PlaceVersion;
         char pad_5[24];
         uintptr_t ToRenderView1;
-        char pad_6[496];
+        char pad_6[576];
         int PrimitiveCount;
-        char pad_7[132];
+        char pad_7[52];
         uintptr_t ScriptContext;
-        char pad_8[296];
+        char pad_8[376];
         uintptr_t GameLoaded;
-    }; // sizeof = 1400
+    }; // sizeof = 1480
 
     struct DepthOfFieldEffect {
         char pad_0[176];
@@ -244,49 +244,49 @@ namespace Structs {
     struct Humanoid {
         char pad_0[32];
         int HumanoidStateID;
-        char pad_1[161];
-        bool PlatformStand;
-        bool UseJumpPower;
-        char pad_2[65];
+        char pad_1[228];
         uintptr_t SeatPart;
-        char pad_3[8];
+        char pad_2[8];
         uintptr_t MoveToPart;
-        char pad_4[8];
+        char pad_3[8];
         Vector3 CameraOffset;
-        char pad_5[12];
+        char pad_4[12];
         Vector3 MoveDirection;
         Vector3 TargetPoint;
-        char pad_6[12];
+        char pad_5[12];
         Vector3 MoveToPoint;
-        char pad_7[16];
+        char pad_6[16];
         int DisplayDistanceType;
         int FloorMaterial;
         float HealthDisplayDistance;
         int HealthDisplayType;
         float Health;
         float HipHeight;
-        char pad_8[8];
+        char pad_7[8];
         float JumpHeight;
         float JumpPower;
         float MaxHealth;
         float MaxSlopeAngle;
         float NameDisplayDistance;
         int NameOcclusion;
-        char pad_9[8];
+        char pad_8[8];
         int RigType;
-        char pad_10[12];
+        char pad_9[12];
         float Walkspeed;
         bool AutoJumpEnabled;
         bool AutoRotate;
         bool AutomaticScalingEnabled;
         bool BreakJointsOnDeath;
         bool EvaluateStateMachine;
-        char pad_11[1];
+        char pad_10[1];
         bool Jump;
-        char pad_12[2];
+        char pad_11[1];
+        bool PlatformStand;
         bool Sit;
         bool RequiresNeck;
-        char pad_13[477];
+        char pad_12[1];
+        bool UseJumpPower;
+        char pad_13[475];
         float WalkspeedCheck;
         char pad_14[72];
         double WalkTimer;
@@ -419,25 +419,26 @@ namespace Structs {
     struct Player {
         char pad_0[304];
         uintptr_t LocalPlayer;
-        char pad_1[352];
-        uintptr_t ModelInstance;
-        char pad_2[56];
-        uintptr_t Team;
-        char pad_3[32];
-        uintptr_t UserId;
-        char pad_4[84];
-        int AccountAge;
-        char pad_5[8];
+        char pad_1[37];
         float MaxZoomDistance;
+        char pad_2[311];
+        uintptr_t ModelInstance;
+        char pad_3[56];
+        uintptr_t Team;
+        char pad_4[32];
+        uintptr_t UserId;
+        char pad_5[84];
+        int AccountAge;
+        char pad_6[12];
         float MinZoomDistance;
         int CameraMode;
-        char pad_6[32];
+        char pad_7[32];
         float HealthDisplayDistance;
-        char pad_7[12];
+        char pad_8[12];
         float NameDisplayDistance;
-        char pad_8[8];
+        char pad_9[8];
         int TeamColor;
-        char pad_9[3644];
+        char pad_10[3644];
         uintptr_t Mouse;
     }; // sizeof = 4600
 
@@ -500,11 +501,11 @@ namespace Structs {
     }; // sizeof = 654
 
     struct RunService {
-        char pad_0[244];
+        char pad_0[200];
         double HeartbeatFPS;
-        char pad_1[700];
+        char pad_1[16];
         uintptr_t HeartbeatTask;
-    }; // sizeof = 960
+    }; // sizeof = 232
 
     struct Script {
         uintptr_t ByteCode;
@@ -571,10 +572,10 @@ namespace Structs {
     }; // sizeof = 192
 
     struct SurfaceAppearance {
-        char pad_0[656];
+        char pad_0[496];
         int AlphaMode;
         float EmissiveStrength;
-    }; // sizeof = 664
+    }; // sizeof = 504
 
     struct TaskScheduler {
         char pad_0[176];
@@ -667,9 +668,9 @@ namespace Structs {
         uintptr_t CurrentCamera;
         char pad_2[24];
         double DistributedGameTime;
-        char pad_3[1280];
+        char pad_3[1288];
         float ReadOnlyGravity;
-    }; // sizeof = 2500
+    }; // sizeof = 2508
 
     struct World {
         char pad_0[520];
