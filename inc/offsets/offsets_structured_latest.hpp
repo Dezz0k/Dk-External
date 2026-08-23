@@ -3,11 +3,13 @@
 #include <cstdint>
 #include <string>
 
-// Sourced from https://offsets.imtheo.lol/?version=version-ce0bcd0fbd484804 (RbxDumperV2)
-// Roblox Version: version-ce0bcd0fbd484804
-// Dumped At: 00:33 18/08/2026 (GMT)
+// Sourced from LIVE dumps:
+// - https://offsets.imtheo.lol (RbxDumperV2)
+// - https://github.com/NtReadVirtualMemory/Roblox-Offsets-Website (version + TaskScheduler/PlayerConfigurer)
+// Roblox Version: version-ddf602d9cfe44005
+// Dumped At: 22:59 11/08/2026 (GMT)
 
-inline std::string ClientVersion = "version-ce0bcd0fbd484804";
+inline std::string ClientVersion = "version-ddf602d9cfe44005";
 
 namespace offsets {
 
@@ -76,13 +78,13 @@ namespace offsets {
 	namespace DataModel {
 		inline constexpr uintptr_t CreatorId = 0x178;
 		inline constexpr uintptr_t GameId = 0x180;
-		inline constexpr uintptr_t GameLoaded = 0x5C0;
+		inline constexpr uintptr_t GameLoaded = 0x570;
 		inline constexpr uintptr_t JobId = 0x118;
 		inline constexpr uintptr_t PlaceId = 0x188;
 		inline constexpr uintptr_t PlaceVersion = 0x1A4;
-		inline constexpr uintptr_t PrimitiveCount = 0x408;
+		inline constexpr uintptr_t PrimitiveCount = 0x3B8;
 		inline constexpr uintptr_t ScriptContext = 0x440;
-		inline constexpr uintptr_t ServerIp = 0x5A8;
+		inline constexpr uintptr_t ServerIp = 0x558;
 		inline constexpr uintptr_t ToRenderView1 = 0x1C0;
 		inline constexpr uintptr_t ToRenderView2 = 0x8;
 		inline constexpr uintptr_t ToRenderView3 = 0x28;
@@ -91,8 +93,8 @@ namespace offsets {
 
 	namespace FakeDataModel {
 		// Deleter is typically Pointer - 8
-		inline constexpr uintptr_t DataModelDeleterPointer = 0x8C426F0;
-		inline constexpr uintptr_t Pointer = 0x8C426F8;
+		inline constexpr uintptr_t DataModelDeleterPointer = 0x8B79B50;
+		inline constexpr uintptr_t Pointer = 0x8B79B58;
 		inline constexpr uintptr_t ToRealDataModel = 0x1D8;
 	}
 
@@ -237,7 +239,6 @@ namespace offsets {
 		inline constexpr uintptr_t DisplayName = 0x138;
 		inline constexpr uintptr_t HealthDisplayDistance = 0x394;
 		inline constexpr uintptr_t LocaleId = 0x118;
-		// Dump MaxZoomDistance 0x15D looks bad; keep adjacent to MinZoom
 		inline constexpr uintptr_t MaxZoomDistance = 0x368;
 		inline constexpr uintptr_t MinZoomDistance = 0x36C;
 		inline constexpr uintptr_t ModelInstance = 0x298;
@@ -254,15 +255,15 @@ namespace offsets {
 	}
 
 	namespace Pointers {
-		inline constexpr uintptr_t PlayerConfigurer = 0x0;
+		inline constexpr uintptr_t PlayerConfigurer = 0x86A8278; // NtReadVirtualMemory LIVE dump
 		inline constexpr uintptr_t Print = 0x4C27BF0;
 		inline constexpr uintptr_t Sensitivity = 0x0;
-		inline constexpr uintptr_t TaskScheduler = 0x89DD108;
+		inline constexpr uintptr_t TaskScheduler = 0x88B64C8;
 	}
 
 	namespace Primitive {
 		inline constexpr uintptr_t CFrame = 0xC8;
-		// Dump Material is 0 ΓÇö keep prior known value
+		// Dump Material is 0 — keep prior known value
 		inline constexpr uintptr_t Material = 0x23E;
 		inline constexpr uintptr_t Position = 0xEC;
 		inline constexpr uintptr_t PrimitiveFlags = 0x1B6;
@@ -294,8 +295,8 @@ namespace offsets {
 	}
 
 	namespace RunService {
-		inline constexpr uintptr_t HeartbeatFPS = 0xC8;
-		inline constexpr uintptr_t HeartbeatTask = 0xE0;
+		inline constexpr uintptr_t HeartbeatFPS = 0xF4;
+		inline constexpr uintptr_t HeartbeatTask = 0x3B8;
 	}
 
 	namespace Sky {
@@ -323,7 +324,7 @@ namespace offsets {
 		inline constexpr uintptr_t JobEnd = 0xD0;
 		inline constexpr uintptr_t JobName = 0x18;
 		inline constexpr uintptr_t JobStart = 0xC8;
-		inline constexpr uintptr_t JobsPointer = 0x89DD108;
+		inline constexpr uintptr_t JobsPointer = 0x88B64C8;
 		inline constexpr uintptr_t MaxFPS = 0xB0;
 	}
 
@@ -359,7 +360,7 @@ namespace offsets {
 		inline constexpr uintptr_t DataModel = 0x1D8;
 		inline constexpr uintptr_t Dimensions = 0xAE0;
 		inline constexpr uintptr_t FakeDataModel = 0xAC0;
-		inline constexpr uintptr_t Pointer = 0x827DD88;
+		inline constexpr uintptr_t Pointer = 0x8136228;
 		inline constexpr uintptr_t ToRenderView = 0xC00;
 		inline constexpr uintptr_t ViewMatrix = 0x180;
 	}
@@ -367,7 +368,7 @@ namespace offsets {
 	namespace Workspace {
 		inline constexpr uintptr_t Camera = 0x498;
 		inline constexpr uintptr_t DistributedGameTime = 0x4B8;
-		inline constexpr uintptr_t ReadOnlyGravity = 0x9C8;
+		inline constexpr uintptr_t ReadOnlyGravity = 0x9C0;
 		inline constexpr uintptr_t World = 0x3F0;
 	}
 
