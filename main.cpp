@@ -1438,11 +1438,21 @@ int main()
 	void* dataModelAddr;
 	dataModelAddr = RBX::getDataModel();
 
-	if (RBX::Memory::read<int>((void*)((uintptr_t)dataModelAddr + Offsets::GameId)) == 0)
+	auto isInGame = [&](void* dm) -> bool
 	{
-		std::cout << "You need to join a game.\n";
+		if (!dm)
+			return false;
+		const int64_t placeId{ RBX::Memory::read<int64_t>((void*)((uintptr_t)dm + Offsets::PlaceId)) };
+		const int64_t gameId{ RBX::Memory::read<int64_t>((void*)((uintptr_t)dm + Offsets::GameId)) };
+		return placeId > 0 || gameId > 0;
+	};
 
-		while (RBX::Memory::read<int>((void*)((uintptr_t)dataModelAddr + Offsets::GameId)) == 0)
+	if (!isInGame(dataModelAddr))
+	{
+		std::cout << "Waiting for a loaded game (offsets " << Offsets::clientVersion << ")...\n";
+		std::cout << "If you are already in-game, Roblox may be on a different client version.\n";
+
+		while (!isInGame(dataModelAddr))
 		{
 			dataModelAddr = RBX::getDataModel();
 			Sleep(1000);
