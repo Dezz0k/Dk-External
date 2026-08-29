@@ -3,22 +3,21 @@
 #include <cstdint>
 #include <string>
 
-// Sourced from LIVE dumps:
-// - https://offsets.imtheo.lol (RbxDumperV2)
-// - https://github.com/NtReadVirtualMemory/Roblox-Offsets-Website (version + TaskScheduler/PlayerConfigurer)
-// Roblox Version: version-ddf602d9cfe44005
-// Dumped At: 22:59 11/08/2026 (GMT)
+// Sourced from LIVE dump:
+// - https://offsets.imtheo.lol (RbxDumperV2) /archive + /offsets.hpp
+// Roblox Version: version-f5a60436d48947d3
+// Dumped At: 19:36 27/08/2026 (GMT)
 
-inline std::string ClientVersion = "version-ddf602d9cfe44005";
+inline std::string ClientVersion = "version-f5a60436d48947d3";
 
 namespace offsets {
 
 	namespace Animation {
-		inline constexpr uintptr_t AnimationId = 0xC0;
+		inline constexpr uintptr_t AnimationId = 0xC0; // Misc.AnimationId
 	}
 
 	namespace BasePart {
-		inline constexpr uintptr_t BrickColor = 0x1A8;
+		inline constexpr uintptr_t BrickColor = 0x1A8; // Color3
 		inline constexpr uintptr_t CastShadow = 0x135;
 		inline constexpr uintptr_t Locked = 0x136;
 		inline constexpr uintptr_t Massless = 0x137;
@@ -59,7 +58,7 @@ namespace offsets {
 
 	namespace Camera {
 		inline constexpr uintptr_t FOV = 0x140;
-		inline constexpr uintptr_t Focus = 0x108;
+		inline constexpr uintptr_t Focus = 0x108; // keep prior (not in dump)
 		inline constexpr uintptr_t Position = 0xFC;
 		inline constexpr uintptr_t Rotation = 0xD8;
 		inline constexpr uintptr_t Subject = 0xC8;
@@ -76,16 +75,16 @@ namespace offsets {
 	}
 
 	namespace DataModel {
-		inline constexpr uintptr_t CreatorId = 0x178;
-		inline constexpr uintptr_t GameId = 0x180;
-		inline constexpr uintptr_t GameLoaded = 0x570;
+		inline constexpr uintptr_t CreatorId = 0x180;
+		inline constexpr uintptr_t GameId = 0x188;
+		inline constexpr uintptr_t GameLoaded = 0x5D0;
 		inline constexpr uintptr_t JobId = 0x118;
-		inline constexpr uintptr_t PlaceId = 0x188;
-		inline constexpr uintptr_t PlaceVersion = 0x1A4;
-		inline constexpr uintptr_t PrimitiveCount = 0x3B8;
+		inline constexpr uintptr_t PlaceId = 0x190;
+		inline constexpr uintptr_t PlaceVersion = 0x1AC;
+		inline constexpr uintptr_t PrimitiveCount = 0x418;
 		inline constexpr uintptr_t ScriptContext = 0x440;
-		inline constexpr uintptr_t ServerIp = 0x558;
-		inline constexpr uintptr_t ToRenderView1 = 0x1C0;
+		inline constexpr uintptr_t ServerIp = 0x5B8;
+		inline constexpr uintptr_t ToRenderView1 = 0x1C8;
 		inline constexpr uintptr_t ToRenderView2 = 0x8;
 		inline constexpr uintptr_t ToRenderView3 = 0x28;
 		inline constexpr uintptr_t Workspace = 0x158;
@@ -93,9 +92,9 @@ namespace offsets {
 
 	namespace FakeDataModel {
 		// Deleter is typically Pointer - 8
-		inline constexpr uintptr_t DataModelDeleterPointer = 0x8B79B50;
-		inline constexpr uintptr_t Pointer = 0x8B79B58;
-		inline constexpr uintptr_t ToRealDataModel = 0x1D8;
+		inline constexpr uintptr_t DataModelDeleterPointer = 0x8CA9CC0;
+		inline constexpr uintptr_t Pointer = 0x8CA9CC8;
+		inline constexpr uintptr_t ToRealDataModel = 0x1F8;
 	}
 
 	namespace GuiObject {
@@ -121,7 +120,7 @@ namespace offsets {
 	}
 
 	namespace Highlight {
-		inline constexpr uintptr_t Adornee = 0xF0;
+		inline constexpr uintptr_t Adornee = 0xF0; // Misc.Adornee
 	}
 
 	namespace Humanoid {
@@ -139,9 +138,9 @@ namespace offsets {
 		inline constexpr uintptr_t HealthDisplayType = 0x18C;
 		inline constexpr uintptr_t HipHeight = 0x194;
 		inline constexpr uintptr_t HumanoidRootPart = 0x478;
-		inline constexpr uintptr_t HumanoidState = 0x898;
+		inline constexpr uintptr_t HumanoidState = 0x8C0;
 		inline constexpr uintptr_t HumanoidStateId = 0x20;
-		inline constexpr uintptr_t IsWalking = 0x93F;
+		inline constexpr uintptr_t IsWalking = 0x967;
 		inline constexpr uintptr_t Jump = 0x1DA;
 		inline constexpr uintptr_t JumpHeight = 0x1A0;
 		inline constexpr uintptr_t JumpPower = 0x1A4;
@@ -152,7 +151,6 @@ namespace offsets {
 		inline constexpr uintptr_t MoveToPoint = 0x164;
 		inline constexpr uintptr_t NameDisplayDistance = 0x1B0;
 		inline constexpr uintptr_t NameOcclusion = 0x1B4;
-		// Dump lists 0xC5 (looks bad); keep prior known-good layout beside Sit
 		inline constexpr uintptr_t PlatformStand = 0x1DC;
 		inline constexpr uintptr_t RequiresNeck = 0x1DD;
 		inline constexpr uintptr_t RigType = 0x1C0;
@@ -202,19 +200,19 @@ namespace offsets {
 	}
 
 	namespace LocalPlayer {
-		inline constexpr uintptr_t PlayerMouse = 0x11F0;
+		inline constexpr uintptr_t PlayerMouse = 0x1208;
 	}
 
 	namespace LocalScript {
-		// Dump ByteCode is 0 ΓÇö keep known working embed offset
+		// Dump ByteCode is 0 - keep known working embed offset
 		inline constexpr uintptr_t ByteCode = 0x190;
 		inline constexpr uintptr_t GUID = 0xD0;
 		inline constexpr uintptr_t Hash = 0x1A0;
 	}
 
 	namespace MeshPart {
-		inline constexpr uintptr_t MeshId = 0x308;
-		inline constexpr uintptr_t TextureId = 0x338;
+		inline constexpr uintptr_t MeshId = 0x310;
+		inline constexpr uintptr_t TextureId = 0x340;
 	}
 
 	namespace ModelInstance {
@@ -223,7 +221,7 @@ namespace offsets {
 	}
 
 	namespace ModuleScript {
-		// Dump ByteCode is 0 ΓÇö keep known working embed offset
+		// Dump ByteCode is 0 - keep known working embed offset
 		inline constexpr uintptr_t ByteCode = 0x138;
 		inline constexpr uintptr_t GUID = 0xD0;
 		inline constexpr uintptr_t Hash = 0x148;
@@ -242,11 +240,11 @@ namespace offsets {
 		inline constexpr uintptr_t MaxZoomDistance = 0x368;
 		inline constexpr uintptr_t MinZoomDistance = 0x36C;
 		inline constexpr uintptr_t ModelInstance = 0x298;
-		inline constexpr uintptr_t Mouse = 0x11F0;
+		inline constexpr uintptr_t Mouse = 0x1208;
 		inline constexpr uintptr_t NameDisplayDistance = 0x3A4;
 		inline constexpr uintptr_t Team = 0x2D8;
 		inline constexpr uintptr_t TeamColor = 0x3B0;
-		inline constexpr uintptr_t UserId = 0x300;
+		inline constexpr uintptr_t UserId = 0xD0;
 	}
 
 	namespace Players {
@@ -255,10 +253,10 @@ namespace offsets {
 	}
 
 	namespace Pointers {
-		inline constexpr uintptr_t PlayerConfigurer = 0x86A8278; // NtReadVirtualMemory LIVE dump
-		inline constexpr uintptr_t Print = 0x4C27BF0;
+		inline constexpr uintptr_t PlayerConfigurer = 0x0; // dump has 0 this build
+		inline constexpr uintptr_t Print = 0x4C27BF0; // prior (not in dump)
 		inline constexpr uintptr_t Sensitivity = 0x0;
-		inline constexpr uintptr_t TaskScheduler = 0x88B64C8;
+		inline constexpr uintptr_t TaskScheduler = 0x8A44D68;
 	}
 
 	namespace Primitive {
@@ -282,7 +280,7 @@ namespace offsets {
 	}
 
 	namespace RenderJob {
-		inline constexpr uintptr_t DataModel = 0x1D0;
+		inline constexpr uintptr_t DataModel = 0x1F0;
 		inline constexpr uintptr_t FakeDataModel = 0x38;
 		inline constexpr uintptr_t ToRenderView = 0x1D8;
 	}
@@ -300,7 +298,7 @@ namespace offsets {
 	}
 
 	namespace Sky {
-		inline constexpr uintptr_t CelestialBodiesShown = 0x250;
+		inline constexpr uintptr_t CelestialBodiesShown = 0x250; // prior
 		inline constexpr uintptr_t MoonAngularSize = 0x244;
 		inline constexpr uintptr_t MoonTextureId = 0xC8;
 		inline constexpr uintptr_t SkyboxBk = 0xF8;
@@ -324,7 +322,7 @@ namespace offsets {
 		inline constexpr uintptr_t JobEnd = 0xD0;
 		inline constexpr uintptr_t JobName = 0x18;
 		inline constexpr uintptr_t JobStart = 0xC8;
-		inline constexpr uintptr_t JobsPointer = 0x88B64C8;
+		inline constexpr uintptr_t JobsPointer = 0x8A44D68;
 		inline constexpr uintptr_t MaxFPS = 0xB0;
 	}
 
@@ -334,8 +332,8 @@ namespace offsets {
 
 	namespace TextLabel {
 		inline constexpr uintptr_t RichText = 0xB88;
-		inline constexpr uintptr_t Text = 0xDF8;
-		inline constexpr uintptr_t TextColor3 = 0xEA8;
+		inline constexpr uintptr_t Text = 0xDF0;
+		inline constexpr uintptr_t TextColor3 = 0xEA0;
 	}
 
 	namespace Texture {
@@ -357,10 +355,10 @@ namespace offsets {
 	}
 
 	namespace VisualEngine {
-		inline constexpr uintptr_t DataModel = 0x1D8;
+		inline constexpr uintptr_t DataModel = 0x1D8; // prior path (dump uses FakeDataModel@AC0)
 		inline constexpr uintptr_t Dimensions = 0xAE0;
 		inline constexpr uintptr_t FakeDataModel = 0xAC0;
-		inline constexpr uintptr_t Pointer = 0x8136228;
+		inline constexpr uintptr_t Pointer = 0x82E2128;
 		inline constexpr uintptr_t ToRenderView = 0xC00;
 		inline constexpr uintptr_t ViewMatrix = 0x180;
 	}
@@ -368,16 +366,16 @@ namespace offsets {
 	namespace Workspace {
 		inline constexpr uintptr_t Camera = 0x498;
 		inline constexpr uintptr_t DistributedGameTime = 0x4B8;
-		inline constexpr uintptr_t ReadOnlyGravity = 0x9C0;
-		inline constexpr uintptr_t World = 0x3F0;
+		inline constexpr uintptr_t ReadOnlyGravity = 0x9C8;
+		inline constexpr uintptr_t World = 0x368;
 	}
 
 	namespace World {
-		inline constexpr uintptr_t AirProperties = 0x220;
-		inline constexpr uintptr_t FallenPartsDestroyHeight = 0x208;
-		inline constexpr uintptr_t Gravity = 0x210;
-		inline constexpr uintptr_t PhysicsStepTime = 0x708;
-		inline constexpr uintptr_t PrimitiveList = 0x290;
+		inline constexpr uintptr_t AirProperties = 0x220; // dump 0 — keep prior
+		inline constexpr uintptr_t FallenPartsDestroyHeight = 0x208; // dump 0 — keep prior
+		inline constexpr uintptr_t Gravity = 0x1B4;
+		inline constexpr uintptr_t PhysicsStepTime = 0x708; // prior
+		inline constexpr uintptr_t PrimitiveList = 0x290; // dump 0 — keep prior
 	}
 
 }

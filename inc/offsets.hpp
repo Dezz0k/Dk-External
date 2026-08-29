@@ -29,6 +29,7 @@ namespace Offsets
 	inline uintptr_t CanCollide{ offsets::Primitive::PrimitiveFlags };
 	inline uintptr_t CanCollideMask{ offsets::PrimitiveFlags::CanCollideMask };
 	inline uintptr_t CanTouchMask{ offsets::PrimitiveFlags::CanTouchMask };
+	inline uintptr_t CanQueryMask{ offsets::PrimitiveFlags::CanQueryMask };
 	inline uintptr_t Children{ offsets::Instance::Children };
 	inline uintptr_t ChildrenEnd{ offsets::Instance::ChildrenSize };
 	inline uintptr_t ClassDescriptor{ offsets::Instance::ClassDescriptor };

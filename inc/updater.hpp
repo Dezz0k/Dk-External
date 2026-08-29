@@ -17,7 +17,7 @@ using json = nlohmann::json;
 // Releases must use tags like v1.1.1 and attach an asset named UPDATE_ASSET_NAME.
 namespace UpdaterConfig
 {
-	constexpr const char* APP_VERSION = "1.2.10";
+	constexpr const char* APP_VERSION = "1.2.11";
 	constexpr const char* GITHUB_OWNER = "Dezz0k";
 	constexpr const char* GITHUB_REPO = "Dk-External";
 	constexpr const char* UPDATE_ASSET_NAME = "DkExternal.exe";

@@ -76,7 +76,9 @@ namespace Settings
 	bool aimbotFOVEnabled{ false };
 	bool aimbotPredictionEnabled{ false };
 	bool aimbotToggleLock{ false };
+	bool aimbotHoldSwitch{ false }; // hold key: lock + can swap targets (opposite of toggle)
 	bool aimbotLockToggled{ false };
+	bool aimbotWallCheck{ false };
 	float aimbotFOVRadius{ 100.0f };
 	float aimbotStrenght{ 0.35f };
 	float aimbotPredictionX{ 5.0f };
@@ -91,9 +93,16 @@ namespace Settings
 
 	bool triggerbotEnabled{ false };
 	bool triggerbotIndicateClicking{ false };
+	bool triggerbotRightClick{ false };
+	bool triggerbotWallCheck{ false };
+	bool triggerbotFOVEnabled{ false };
+	bool triggerbotShowPredDot{ false };
+	bool triggerbotPredictionEnabled{ false };
 	float triggerbotDetectionRadius{ 20.0f };
+	float triggerbotDelayMs{ 50.0f };
 	std::string triggerbotTriggerPart{ "Torso" };
 	int triggerbotKey{ 0 };
+	ImVec4 triggerbotFovColor{ 1.0f, 0.55f, 0.1f, 1.0f };
 
 	bool espEnabled{ false };
 	bool espFilled{ false };
@@ -108,7 +117,8 @@ namespace Settings
 	std::string tracerType{ "Mouse" };
 	ImVec4 tracerColor{ 1.0f, 1.0f, 1.0f, 1.0f };
 
-	char configFileName[30]{};
+	char configFileName[64]{};
+	char configStatus[96]{};
 	char themeFileName[30]{};
 	bool autoSaveEnabled{ false };
 	bool streamproofEnabled{ false };
@@ -427,6 +437,242 @@ static RBX::Instance resolveLockPart(RBX::Instance& plr, const std::string& part
 
 	size_t index{ static_cast<size_t>(std::distance(aimbotLockPartsR6.begin(), it)) };
 	return plr.findFirstChild(aimbotLockPartsR15[index]);
+}
+
+// Head part center sits low on screen at long range; aim toward the top of the head.
+static RBX::Vector3 getAimWorldPos(RBX::Instance& part)
+{
+	RBX::Vector3 pos{ part.getPosition() };
+	if (!part.address)
+		return pos;
+
+	const std::string partName{ part.name() };
+	if (partName == "Head")
+	{
+		void* prim{ part.getPrimitive() };
+		if (prim)
+		{
+			const RBX::Vector3 size{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)prim + Offsets::PartSize)) };
+			if (size.y > 0.15f && size.y < 4.0f)
+				pos.y += size.y * 0.42f;
+			else
+				pos.y += 0.55f;
+		}
+		else
+		{
+			pos.y += 0.55f;
+		}
+	}
+	return pos;
+}
+
+static bool RayHitsAabb(const RBX::Vector3& origin, const RBX::Vector3& dir, float maxDist,
+	const RBX::Vector3& center, const RBX::Vector3& half, float* hitDistOut)
+{
+	const RBX::Vector3 mn{ center.x - half.x, center.y - half.y, center.z - half.z };
+	const RBX::Vector3 mx{ center.x + half.x, center.y + half.y, center.z + half.z };
+
+	float tmin = 0.0f;
+	float tmax = maxDist;
+	const float o[3]{ origin.x, origin.y, origin.z };
+	const float d[3]{ dir.x, dir.y, dir.z };
+	const float bmin[3]{ mn.x, mn.y, mn.z };
+	const float bmax[3]{ mx.x, mx.y, mx.z };
+
+	for (int i = 0; i < 3; ++i)
+	{
+		if (fabsf(d[i]) < 1e-8f)
+		{
+			if (o[i] < bmin[i] || o[i] > bmax[i])
+				return false;
+			continue;
+		}
+		float invD = 1.0f / d[i];
+		float t0 = (bmin[i] - o[i]) * invD;
+		float t1 = (bmax[i] - o[i]) * invD;
+		if (t0 > t1) { const float tmp = t0; t0 = t1; t1 = tmp; }
+		tmin = t0 > tmin ? t0 : tmin;
+		tmax = t1 < tmax ? t1 : tmax;
+		if (tmax < tmin)
+			return false;
+	}
+
+	if (hitDistOut)
+		*hitDistOut = tmin;
+	return tmin >= 0.0f && tmin <= maxDist;
+}
+
+// Exact oriented-box hit (avoids fat AABB false-blocks on rotated crates/containers).
+static bool RayHitsObb(const RBX::Vector3& origin, const RBX::Vector3& dir, float maxDist,
+	const RBX::Vector3& center, const RBX::Matrix3& rot, const RBX::Vector3& size, float* hitDistOut)
+{
+	const RBX::Vector3 half{
+		fabsf(size.x) * 0.5f * 0.92f,
+		fabsf(size.y) * 0.5f * 0.92f,
+		fabsf(size.z) * 0.5f * 0.92f
+	};
+	const RBX::Vector3 rel{ origin.x - center.x, origin.y - center.y, origin.z - center.z };
+
+	// local = R^T * world  (row-major R)
+	const RBX::Vector3 localOrigin{
+		rot.data[0] * rel.x + rot.data[3] * rel.y + rot.data[6] * rel.z,
+		rot.data[1] * rel.x + rot.data[4] * rel.y + rot.data[7] * rel.z,
+		rot.data[2] * rel.x + rot.data[5] * rel.y + rot.data[8] * rel.z
+	};
+	const RBX::Vector3 localDir{
+		rot.data[0] * dir.x + rot.data[3] * dir.y + rot.data[6] * dir.z,
+		rot.data[1] * dir.x + rot.data[4] * dir.y + rot.data[7] * dir.z,
+		rot.data[2] * dir.x + rot.data[5] * dir.y + rot.data[8] * dir.z
+	};
+
+	return RayHitsAabb(localOrigin, localDir, maxDist, { 0, 0, 0 }, half, hitDistOut);
+}
+
+static bool IsWallPartClass(const std::string& cn)
+{
+	return cn == "Part" || cn == "MeshPart" || cn == "UnionOperation" || cn == "WedgePart"
+		|| cn == "CornerWedgePart" || cn == "TrussPart" || cn == "SpawnLocation";
+}
+
+static bool IsCharacterPartName(const std::string& n)
+{
+	return n == "HumanoidRootPart" || n == "Head" || n == "Torso" || n == "UpperTorso" || n == "LowerTorso"
+		|| n == "Left Arm" || n == "Right Arm" || n == "Left Leg" || n == "Right Leg"
+		|| n == "LeftUpperArm" || n == "LeftLowerArm" || n == "LeftHand"
+		|| n == "RightUpperArm" || n == "RightLowerArm" || n == "RightHand"
+		|| n == "LeftUpperLeg" || n == "LeftLowerLeg" || n == "LeftFoot"
+		|| n == "RightUpperLeg" || n == "RightLowerLeg" || n == "RightFoot"
+		|| n == "LeftFootAttachment" || n == "Animate";
+}
+
+static bool CollectWallParts(RBX::Instance node, const std::unordered_set<void*>& ignoreRoots,
+	std::vector<RBX::Instance>& out, int& visited, int maxVisit)
+{
+	if (!node.address || visited >= maxVisit || (int)out.size() >= 2500)
+		return false;
+	++visited;
+
+	if (ignoreRoots.find(node.address) != ignoreRoots.end())
+		return true; // skip whole character/model subtree
+
+	if (IsWallPartClass(node.className()))
+		out.push_back(node);
+
+	for (RBX::Instance ch : node.getChildren())
+	{
+		if ((int)out.size() >= 2500 || visited >= maxVisit)
+			break;
+		CollectWallParts(ch, ignoreRoots, out, visited, maxVisit);
+	}
+	return true;
+}
+
+static void CollectPlayerCharacterIgnores(RBX::Instance& dataModel, std::unordered_set<void*>& ignoreRoots)
+{
+	RBX::Instance players{ dataModel.findFirstChildOfClass("Players") };
+	if (!players.address)
+		players = dataModel.findFirstChild("Players");
+	if (!players.address)
+		return;
+
+	for (RBX::Instance plr : players.getChildren())
+	{
+		if (!plr.address)
+			continue;
+		RBX::Instance model{ plr.getModelInstance() };
+		if (model.address)
+			ignoreRoots.insert(model.address);
+		ignoreRoots.insert(plr.address);
+	}
+}
+
+// Returns true when nothing solid is between camera and target.
+static bool HasLineOfSight(RBX::Instance& dataModel, RBX::Instance& camera,
+	const RBX::Vector3& targetPos, RBX::Instance* ignoreModelA, RBX::Instance* ignoreModelB)
+{
+	if (!camera.address)
+		return true;
+
+	const RBX::Vector3 camPos{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)camera.address + Offsets::CameraPos)) };
+	RBX::Vector3 delta{ targetPos.x - camPos.x, targetPos.y - camPos.y, targetPos.z - camPos.z };
+	const float dist{ sqrtf(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z) };
+	if (dist < 0.35f)
+		return true;
+
+	delta.x /= dist; delta.y /= dist; delta.z /= dist;
+
+	RBX::Instance workspace{ dataModel.findFirstChild("Workspace") };
+	if (!workspace.address)
+		return true;
+
+	static std::vector<RBX::Instance> wallParts;
+	static ULONGLONG lastWallScanMs{ 0 };
+	static void* lastWs{ nullptr };
+	const ULONGLONG now{ GetTickCount64() };
+	if (wallParts.empty() || workspace.address != lastWs || now - lastWallScanMs > 800)
+	{
+		std::unordered_set<void*> ignoreRoots;
+		CollectPlayerCharacterIgnores(dataModel, ignoreRoots);
+		if (ignoreModelA && ignoreModelA->address)
+			ignoreRoots.insert(ignoreModelA->address);
+		if (ignoreModelB && ignoreModelB->address)
+			ignoreRoots.insert(ignoreModelB->address);
+
+		wallParts.clear();
+		int visited{ 0 };
+		CollectWallParts(workspace, ignoreRoots, wallParts, visited, 12000);
+		lastWallScanMs = now;
+		lastWs = workspace.address;
+	}
+
+	// Stop a bit before the target so we don't treat their own hitbox as a wall.
+	const float hitLimit{ dist - 1.0f };
+	if (hitLimit <= 0.05f)
+		return true;
+
+	for (RBX::Instance& part : wallParts)
+	{
+		if (!part.address)
+			continue;
+		if (IsCharacterPartName(part.name()))
+			continue;
+
+		void* prim{ part.getPrimitive() };
+		if (!prim)
+			continue;
+
+		// Match Roblox raycasts: only parts that collide AND can be queried block shots.
+		// Shoot-through crates often keep CanCollide for walking but clear CanQuery.
+		const uint8_t flags{ RBX::Memory::read<uint8_t>((void*)((uintptr_t)prim + Offsets::CanCollide)) };
+		const bool canCollide{ (flags & static_cast<uint8_t>(Offsets::CanCollideMask)) != 0 };
+		const bool canQuery{ (flags & static_cast<uint8_t>(Offsets::CanQueryMask)) != 0 };
+		if (!canCollide || !canQuery)
+			continue;
+
+		// Glass / invisible / mostly transparent props shouldn't block aim.
+		const float transparency{ RBX::Memory::read<float>((void*)((uintptr_t)part.address + Offsets::Transparency)) };
+		if (transparency > 0.85f)
+			continue;
+
+		const RBX::Vector3 center{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)prim + Offsets::Position)) };
+		const RBX::Vector3 size{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)prim + Offsets::PartSize)) };
+		if (!(size.x > 0.15f && size.y > 0.15f && size.z > 0.15f))
+			continue;
+		// Skip map-sized floors/skyboxes that would always block.
+		if ((size.x > 350.0f && size.z > 350.0f) || size.y > 350.0f)
+			continue;
+
+		const RBX::Matrix3 rot{ RBX::Memory::read<RBX::Matrix3>((void*)((uintptr_t)prim + Offsets::CFrame)) };
+
+		float hitT{ 0.0f };
+		if (RayHitsObb(camPos, delta, hitLimit, center, rot, size, &hitT))
+		{
+			// Ignore hits extremely close to camera (local accessories / camera clip).
+			if (hitT > 0.45f)
+				return false;
+		}
+	}
+	return true;
 }
 
 static void DrawKeybindProp(const char* label, const char* mode, int key, bool active)
@@ -976,15 +1222,24 @@ static bool SaveConfigFile(const std::string& name)
 	config["aimbot"]["lockPart"] = Settings::aimbotLockPart;
 	config["aimbot"]["key"] = Settings::aimbotKey;
 	config["aimbot"]["toggleLock"] = Settings::aimbotToggleLock;
+	config["aimbot"]["holdSwitch"] = Settings::aimbotHoldSwitch;
+	config["aimbot"]["wallCheck"] = Settings::aimbotWallCheck;
 	config["aimbot"]["predictionEnabled"] = Settings::aimbotPredictionEnabled;
 	config["aimbot"]["predictionX"] = Settings::aimbotPredictionX;
 	config["aimbot"]["predictionY"] = Settings::aimbotPredictionY;
 	config["aimbot"]["FOVcolor"] = { Settings::aimbotFovColor.x, Settings::aimbotFovColor.y, Settings::aimbotFovColor.z, Settings::aimbotFovColor.w };
 	config["triggerbot"]["enabled"] = Settings::triggerbotEnabled;
 	config["triggerbot"]["indicateClicking"] = Settings::triggerbotIndicateClicking;
+	config["triggerbot"]["rightClick"] = Settings::triggerbotRightClick;
+	config["triggerbot"]["wallCheck"] = Settings::triggerbotWallCheck;
+	config["triggerbot"]["FOVenabled"] = Settings::triggerbotFOVEnabled;
+	config["triggerbot"]["showPredDot"] = Settings::triggerbotShowPredDot;
+	config["triggerbot"]["predictionEnabled"] = Settings::triggerbotPredictionEnabled;
 	config["triggerbot"]["detectionRadius"] = Settings::triggerbotDetectionRadius;
+	config["triggerbot"]["delayMs"] = Settings::triggerbotDelayMs;
 	config["triggerbot"]["triggerPart"] = Settings::triggerbotTriggerPart;
 	config["triggerbot"]["key"] = Settings::triggerbotKey;
+	config["triggerbot"]["FOVcolor"] = { Settings::triggerbotFovColor.x, Settings::triggerbotFovColor.y, Settings::triggerbotFovColor.z, Settings::triggerbotFovColor.w };
 	config["esp"]["enabled"] = Settings::espEnabled;
 	config["esp"]["filled"] = Settings::espFilled;
 	config["esp"]["showDistance"] = Settings::espShowDistance;
@@ -1019,20 +1274,21 @@ static bool SaveConfigFile(const std::string& name)
 	config["misc"]["behindPlayerDistance"] = Settings::behindPlayerDistance;
 	config["misc"]["behindPlayerFOV"] = Settings::behindPlayerFOV;
 	config["misc"]["streamproofEnabled"] = Settings::streamproofEnabled;
-	std::filesystem::create_directories("configs");
-	const std::filesystem::path path{ std::filesystem::path("configs") / (name + ".json") };
+	std::filesystem::create_directories(GetConfigsDirectory());
+	const std::filesystem::path path{ GetConfigsDirectory() / (name + ".json") };
 	std::ofstream oF(path);
 	if (!oF.is_open())
 		return false;
 	oF << config.dump(4);
-	return true;
+	oF.flush();
+	return oF.good();
 }
 
 static bool LoadConfigFile(const std::string& name)
 {
 	if (name.empty())
 		return false;
-	const std::filesystem::path path{ std::filesystem::path("configs") / (name + ".json") };
+	const std::filesystem::path path{ GetConfigsDirectory() / (name + ".json") };
 	std::ifstream iF(path);
 	if (!iF.is_open())
 		return false;
@@ -1061,6 +1317,8 @@ static bool LoadConfigFile(const std::string& name)
 		if (config["aimbot"].contains("lockPart")) Settings::aimbotLockPart = config["aimbot"]["lockPart"].get<std::string>();
 		if (config["aimbot"].contains("key")) Settings::aimbotKey = config["aimbot"]["key"].get<int>();
 		if (config["aimbot"].contains("toggleLock")) Settings::aimbotToggleLock = config["aimbot"]["toggleLock"].get<bool>();
+		if (config["aimbot"].contains("holdSwitch")) Settings::aimbotHoldSwitch = config["aimbot"]["holdSwitch"].get<bool>();
+		if (config["aimbot"].contains("wallCheck")) Settings::aimbotWallCheck = config["aimbot"]["wallCheck"].get<bool>();
 		if (config["aimbot"].contains("predictionEnabled")) Settings::aimbotPredictionEnabled = config["aimbot"]["predictionEnabled"].get<bool>();
 		if (config["aimbot"].contains("predictionX")) Settings::aimbotPredictionX = config["aimbot"]["predictionX"].get<float>();
 		if (config["aimbot"].contains("predictionY")) Settings::aimbotPredictionY = config["aimbot"]["predictionY"].get<float>();
@@ -1076,9 +1334,22 @@ static bool LoadConfigFile(const std::string& name)
 	{
 		if (config["triggerbot"].contains("enabled")) Settings::triggerbotEnabled = config["triggerbot"]["enabled"].get<bool>();
 		if (config["triggerbot"].contains("indicateClicking")) Settings::triggerbotIndicateClicking = config["triggerbot"]["indicateClicking"].get<bool>();
+		if (config["triggerbot"].contains("rightClick")) Settings::triggerbotRightClick = config["triggerbot"]["rightClick"].get<bool>();
+		if (config["triggerbot"].contains("wallCheck")) Settings::triggerbotWallCheck = config["triggerbot"]["wallCheck"].get<bool>();
+		if (config["triggerbot"].contains("FOVenabled")) Settings::triggerbotFOVEnabled = config["triggerbot"]["FOVenabled"].get<bool>();
+		if (config["triggerbot"].contains("showPredDot")) Settings::triggerbotShowPredDot = config["triggerbot"]["showPredDot"].get<bool>();
+		if (config["triggerbot"].contains("predictionEnabled")) Settings::triggerbotPredictionEnabled = config["triggerbot"]["predictionEnabled"].get<bool>();
 		if (config["triggerbot"].contains("detectionRadius")) Settings::triggerbotDetectionRadius = config["triggerbot"]["detectionRadius"].get<float>();
+		if (config["triggerbot"].contains("delayMs")) Settings::triggerbotDelayMs = config["triggerbot"]["delayMs"].get<float>();
 		if (config["triggerbot"].contains("triggerPart")) Settings::triggerbotTriggerPart = config["triggerbot"]["triggerPart"].get<std::string>();
 		if (config["triggerbot"].contains("key")) Settings::triggerbotKey = config["triggerbot"]["key"].get<int>();
+		if (config["triggerbot"].contains("FOVcolor") && config["triggerbot"]["FOVcolor"].is_array() && config["triggerbot"]["FOVcolor"].size() >= 4)
+			Settings::triggerbotFovColor = {
+				config["triggerbot"]["FOVcolor"][0].get<float>(),
+				config["triggerbot"]["FOVcolor"][1].get<float>(),
+				config["triggerbot"]["FOVcolor"][2].get<float>(),
+				config["triggerbot"]["FOVcolor"][3].get<float>()
+			};
 	}
 	if (config.contains("esp"))
 	{
@@ -1114,7 +1385,6 @@ static bool LoadConfigFile(const std::string& name)
 	{
 		if (config["settings"].contains("rbxWindowNeedsToBeSelected")) Settings::rbxWindowNeedsToBeSelected = config["settings"]["rbxWindowNeedsToBeSelected"].get<bool>();
 		if (config["settings"].contains("mainLoopDelay")) Settings::mainLoopDelay = config["settings"]["mainLoopDelay"].get<int>();
-		if (config["settings"].contains("autoSave")) Settings::autoSaveEnabled = config["settings"]["autoSave"].get<bool>();
 		if (config["settings"].contains("hideSmiteLogo")) Settings::hideSmiteLogo = config["settings"]["hideSmiteLogo"].get<bool>();
 	}
 	if (config.contains("misc"))
@@ -1138,6 +1408,8 @@ static bool LoadConfigFile(const std::string& name)
 		if (config["misc"].contains("behindPlayerFOV")) Settings::behindPlayerFOV = config["misc"]["behindPlayerFOV"].get<float>();
 		if (config["misc"].contains("streamproofEnabled")) Settings::streamproofEnabled = config["misc"]["streamproofEnabled"].get<bool>();
 	}
+	// Always disable autosave after a load so profiles don't overwrite each other.
+	Settings::autoSaveEnabled = false;
 	return true;
 }
 
@@ -1190,6 +1462,8 @@ static void PullGui(SkechStyle::DemoState& st)
 	st.aimbotFOVEnabled = Settings::aimbotFOVEnabled;
 	st.aimbotPredictionEnabled = Settings::aimbotPredictionEnabled;
 	st.aimbotToggleLock = Settings::aimbotToggleLock;
+	st.aimbotHoldSwitch = Settings::aimbotHoldSwitch;
+	st.aimbotWallCheck = Settings::aimbotWallCheck;
 	st.aimbotFOVRadius = Settings::aimbotFOVRadius;
 	st.aimbotStrenght = Settings::aimbotStrenght;
 	st.aimbotPredictionX = Settings::aimbotPredictionX;
@@ -1199,9 +1473,16 @@ static void PullGui(SkechStyle::DemoState& st)
 	st.aimbotFovColor = Settings::aimbotFovColor;
 	st.triggerbotEnabled = Settings::triggerbotEnabled;
 	st.triggerbotIndicateClicking = Settings::triggerbotIndicateClicking;
+	st.triggerbotRightClick = Settings::triggerbotRightClick;
+	st.triggerbotWallCheck = Settings::triggerbotWallCheck;
+	st.triggerbotFOVEnabled = Settings::triggerbotFOVEnabled;
+	st.triggerbotShowPredDot = Settings::triggerbotShowPredDot;
+	st.triggerbotPredictionEnabled = Settings::triggerbotPredictionEnabled;
 	st.triggerbotDetectionRadius = Settings::triggerbotDetectionRadius;
+	st.triggerbotDelayMs = Settings::triggerbotDelayMs;
 	st.triggerbotTriggerPart = GuiIndexOf(kGuiTrigParts, IM_ARRAYSIZE(kGuiTrigParts), Settings::triggerbotTriggerPart);
 	st.triggerbotKey = Settings::triggerbotKey;
+	st.triggerbotFovColor = Settings::triggerbotFovColor;
 	st.silentAimEnabled = Settings::silentAimEnabled;
 	st.silentAimLockPart = GuiIndexOf(kGuiLockParts, IM_ARRAYSIZE(kGuiLockParts), Settings::silentAimLockPart);
 	st.silentAimFOVRadius = Settings::silentAimFOVRadius;
@@ -1218,6 +1499,8 @@ static void PullGui(SkechStyle::DemoState& st)
 	st.tracerType = GuiIndexOf(kGuiTracerTypes, IM_ARRAYSIZE(kGuiTracerTypes), Settings::tracerType);
 	st.tracerColor = Settings::tracerColor;
 	strncpy_s(st.configFileName, Settings::configFileName, _TRUNCATE);
+	if (Settings::configStatus[0])
+		strncpy_s(st.configStatus, Settings::configStatus, _TRUNCATE);
 	if (st.requestRefreshConfigs || st.configCount == 0)
 		RefreshGuiConfigs(st);
 	st.autoSaveEnabled = Settings::autoSaveEnabled;
@@ -1274,6 +1557,8 @@ static void PushGui(const SkechStyle::DemoState& st)
 	Settings::aimbotFOVEnabled = st.aimbotFOVEnabled;
 	Settings::aimbotPredictionEnabled = st.aimbotPredictionEnabled;
 	Settings::aimbotToggleLock = st.aimbotToggleLock;
+	Settings::aimbotHoldSwitch = st.aimbotHoldSwitch;
+	Settings::aimbotWallCheck = st.aimbotWallCheck;
 	Settings::aimbotFOVRadius = st.aimbotFOVRadius;
 	Settings::aimbotStrenght = st.aimbotStrenght;
 	Settings::aimbotPredictionX = st.aimbotPredictionX;
@@ -1283,9 +1568,16 @@ static void PushGui(const SkechStyle::DemoState& st)
 	Settings::aimbotFovColor = st.aimbotFovColor;
 	Settings::triggerbotEnabled = st.triggerbotEnabled;
 	Settings::triggerbotIndicateClicking = st.triggerbotIndicateClicking;
+	Settings::triggerbotRightClick = st.triggerbotRightClick;
+	Settings::triggerbotWallCheck = st.triggerbotWallCheck;
+	Settings::triggerbotFOVEnabled = st.triggerbotFOVEnabled;
+	Settings::triggerbotShowPredDot = st.triggerbotShowPredDot;
+	Settings::triggerbotPredictionEnabled = st.triggerbotPredictionEnabled;
 	Settings::triggerbotDetectionRadius = st.triggerbotDetectionRadius;
+	Settings::triggerbotDelayMs = st.triggerbotDelayMs;
 	Settings::triggerbotTriggerPart = kGuiTrigParts[st.triggerbotTriggerPart];
 	Settings::triggerbotKey = st.triggerbotKey;
+	Settings::triggerbotFovColor = st.triggerbotFovColor;
 	Settings::silentAimEnabled = st.silentAimEnabled;
 	Settings::silentAimLockPart = kGuiLockParts[st.silentAimLockPart];
 	Settings::silentAimFOVRadius = st.silentAimFOVRadius;
@@ -1484,9 +1776,9 @@ int main()
 		std::filesystem::create_directory("themes");
 	}
 
-	if (!std::filesystem::exists("configs/"))
+	if (!std::filesystem::exists(GetConfigsDirectory()))
 	{
-		std::filesystem::create_directory("configs");
+		std::filesystem::create_directories(GetConfigsDirectory());
 	}
 
 	std::ifstream settingsIF("settings.json");
@@ -1511,19 +1803,63 @@ int main()
 	}
 	guiSt.onSaveConfig = [&guiSt]()
 	{
-		const char* name = guiSt.configFileName[0] ? guiSt.configFileName : "autosave";
-		if (SaveConfigFile(name))
+		PushGui(guiSt);
+		if (!guiSt.configFileName[0])
 		{
-			strncpy_s(Settings::configFileName, name, _TRUNCATE);
+			strncpy_s(guiSt.configStatus, "Type a config name first.", _TRUNCATE);
+			return;
+		}
+		if (SaveConfigFile(guiSt.configFileName))
+		{
+			strncpy_s(Settings::configFileName, guiSt.configFileName, _TRUNCATE);
+			strncpy_s(Settings::configStatus, "Saved.", _TRUNCATE);
+			strncpy_s(guiSt.configStatus, "Saved.", _TRUNCATE);
 			guiSt.requestRefreshConfigs = true;
+		}
+		else
+		{
+			strncpy_s(guiSt.configStatus, "Save failed (check folder).", _TRUNCATE);
+		}
+	};
+	guiSt.onCreateConfig = [&guiSt]()
+	{
+		PushGui(guiSt);
+		if (!guiSt.configFileName[0])
+		{
+			strncpy_s(guiSt.configStatus, "Type a new name, then Create.", _TRUNCATE);
+			return;
+		}
+		if (SaveConfigFile(guiSt.configFileName))
+		{
+			strncpy_s(Settings::configFileName, guiSt.configFileName, _TRUNCATE);
+			strncpy_s(Settings::configStatus, "Created.", _TRUNCATE);
+			strncpy_s(guiSt.configStatus, "Created.", _TRUNCATE);
+			guiSt.requestRefreshConfigs = true;
+		}
+		else
+		{
+			strncpy_s(guiSt.configStatus, "Create failed (check folder).", _TRUNCATE);
 		}
 	};
 	guiSt.onLoadConfig = [&guiSt]()
 	{
 		if (!guiSt.configFileName[0])
+		{
+			strncpy_s(guiSt.configStatus, "Select a config first.", _TRUNCATE);
 			return;
+		}
 		if (LoadConfigFile(guiSt.configFileName))
+		{
 			strncpy_s(Settings::configFileName, guiSt.configFileName, _TRUNCATE);
+			Settings::autoSaveEnabled = false;
+			guiSt.autoSaveEnabled = false;
+			strncpy_s(guiSt.configStatus, "Loaded (autosave off).", _TRUNCATE);
+			PullGui(guiSt);
+		}
+		else
+		{
+			strncpy_s(guiSt.configStatus, "Load failed (file missing?).", _TRUNCATE);
+		}
 	};
 
 	if (Settings::highEndVisuals)
@@ -1711,7 +2047,7 @@ int main()
 				if (!lockPart.address)
 					continue;
 
-				RBX::Vector3 lockPartPos{ lockPart.getPosition() };
+				RBX::Vector3 lockPartPos{ getAimWorldPos(lockPart) };
 				RBX::Vector2 screenPos{ visualEngine.worldToScreen(lockPartPos) };
 
 				float dx{ screenPos.x - mousePos.x };
@@ -2201,6 +2537,18 @@ int main()
 			PushGui(guiSt);
 			ProcessGuiPlayerActions(guiSt, players, camera, humanoid, hrp);
 
+			// Autosave only the selected/named config — never create a new file.
+			if (Settings::autoSaveEnabled && Settings::configFileName[0] != '\0')
+			{
+				static ULONGLONG lastAutoSaveMs{ 0 };
+				const ULONGLONG nowSaveMs{ GetTickCount64() };
+				if (nowSaveMs - lastAutoSaveMs >= 1500)
+				{
+					lastAutoSaveMs = nowSaveMs;
+					SaveConfigFile(Settings::configFileName);
+				}
+			}
+
 			if (guiSt.requestForceReset)
 			{
 				guiSt.requestForceReset = false;
@@ -2407,7 +2755,7 @@ int main()
 
 					ImGui::Text("Aimbot strength");
 					ImGui::SetCursorPosX(185.0f);
-					ImGui::SliderFloat("##Aimbot strength", &Settings::aimbotStrenght, 0.05f, 1.0f, "%.2f");
+					ImGui::SliderFloat("##Aimbot strength", &Settings::aimbotStrenght, 0.05f, 5.0f, "%.2f");
 					ImGui::SetCursorPosX(185.0f);
 
 					ImGui::Text("Prediction X");
@@ -2671,7 +3019,11 @@ int main()
 
 							Settings::triggerbotEnabled = config["triggerbot"]["enabled"].get<bool>();
 							Settings::triggerbotIndicateClicking = config["triggerbot"]["indicateClicking"].get<bool>();
+							if (config["triggerbot"].contains("rightClick"))
+								Settings::triggerbotRightClick = config["triggerbot"]["rightClick"].get<bool>();
 							Settings::triggerbotDetectionRadius = config["triggerbot"]["detectionRadius"].get<float>();
+							if (config["triggerbot"].contains("delayMs"))
+								Settings::triggerbotDelayMs = config["triggerbot"]["delayMs"].get<float>();
 							Settings::triggerbotTriggerPart = config["triggerbot"]["triggerPart"].get<std::string>();
 							Settings::triggerbotKey = config["triggerbot"]["key"].get<int>();
 
@@ -2764,7 +3116,9 @@ int main()
 
 							config["triggerbot"]["enabled"] = Settings::triggerbotEnabled;
 							config["triggerbot"]["indicateClicking"] = Settings::triggerbotIndicateClicking;
+							config["triggerbot"]["rightClick"] = Settings::triggerbotRightClick;
 							config["triggerbot"]["detectionRadius"] = Settings::triggerbotDetectionRadius;
+							config["triggerbot"]["delayMs"] = Settings::triggerbotDelayMs;
 							config["triggerbot"]["triggerPart"] = Settings::triggerbotTriggerPart;
 							config["triggerbot"]["key"] = Settings::triggerbotKey;
 
@@ -3471,6 +3825,7 @@ int main()
 				RBX::Instance closestPlr{ nullptr };
 				POINT mousePos{};
 				GetCursorPos(&mousePos);
+				RBX::Instance localModel{ localPlayer.getModelInstance() };
 
 				for (size_t pi = 0; pi < playersList.size(); ++pi)
 				{
@@ -3483,7 +3838,12 @@ int main()
 					if (!lockPart.address)
 						continue;
 
-					RBX::Vector2 screenPos{ visualEngine.worldToScreen(lockPart.getPosition()) };
+					RBX::Vector3 aimPos{ getAimWorldPos(lockPart) };
+					RBX::Instance targetModel{ plr.getModelInstance() };
+					if (Settings::aimbotWallCheck && !HasLineOfSight(dataModel, camera, aimPos, &localModel, &targetModel))
+						continue;
+
+					RBX::Vector2 screenPos{ visualEngine.worldToScreen(aimPos) };
 					float dx{ screenPos.x - mousePos.x };
 					float dy{ screenPos.y - mousePos.y };
 					float dist{ sqrtf(dx * dx + dy * dy) };
@@ -3509,6 +3869,7 @@ int main()
 
 			if (Settings::aimbotToggleLock)
 			{
+				Settings::aimbotHoldSwitch = false;
 				if (keybindDown && !keybindPrevDown)
 				{
 					if (!Settings::aimbotLockToggled)
@@ -3521,6 +3882,21 @@ int main()
 						Settings::aimbotLockToggled = false;
 						clearAimLock();
 					}
+				}
+			}
+			else if (Settings::aimbotHoldSwitch)
+			{
+				Settings::aimbotLockToggled = false;
+				if (keybindDown)
+				{
+					// While holding: always track closest in FOV (can swap people).
+					acquireClosestTarget();
+					if (!locked)
+						clearAimLock();
+				}
+				else
+				{
+					clearAimLock();
 				}
 			}
 			else
@@ -3539,7 +3915,10 @@ int main()
 				clearAimLock();
 			}
 
-			const bool shouldTrack{ Settings::aimbotToggleLock ? Settings::aimbotLockToggled : keybindDown };
+			const bool shouldTrack{
+				Settings::aimbotToggleLock ? Settings::aimbotLockToggled
+				: keybindDown
+			};
 			if (shouldTrack && locked && lockedPlr.address != nullptr)
 			{
 				// Overlay can run hundreds of FPS; aim only ~120Hz like Roblox RenderStepped.
@@ -3560,7 +3939,7 @@ int main()
 					if (lockPart.address)
 					{
 						stickyLockPart = lockPart;
-						RBX::Vector3 lockPartPos{ lockPart.getPosition() };
+						RBX::Vector3 lockPartPos{ getAimWorldPos(lockPart) };
 
 						if (Settings::aimbotPredictionEnabled)
 						{
@@ -3571,6 +3950,16 @@ int main()
 							lockPartPos.z += lockPartVelocity.z * Settings::aimbotPredictionX * predScale;
 						}
 
+						RBX::Instance localModel{ localPlayer.getModelInstance() };
+						RBX::Instance targetModel{ lockedPlr.getModelInstance() };
+						if (Settings::aimbotWallCheck && !HasLineOfSight(dataModel, camera, lockPartPos, &localModel, &targetModel))
+						{
+							// Behind wall: drop sticky lock so hold-switch can pick someone else.
+							if (Settings::aimbotHoldSwitch)
+								clearAimLock();
+						}
+						else
+						{
 						// trackBehind=true: keep turning camera when target goes behind you
 						RBX::Vector2 screenPos{ visualEngine.worldToScreen(lockPartPos, true) };
 
@@ -3586,13 +3975,18 @@ int main()
 						}
 						else
 						{
-							const float strength{ std::clamp(Settings::aimbotStrenght, 0.05f, 1.0f) };
-							// Higher strength = lower divisor = much faster snap (still rate-limited).
-							const float divisor{ 9.0f - strength * 7.2f }; // ~8.6 .. 1.8
-							const float maxStep{ 10.0f + strength * 38.0f }; // ~12 .. 48
+							const float strength{ std::clamp(Settings::aimbotStrenght, 0.05f, 5.0f) };
+							// Higher strength = lower divisor / larger step. 5.0 is near-instant.
+							const float rawDiv{ 9.0f - strength * 1.72f };
+							const float divisor{ rawDiv < 0.35f ? 0.35f : rawDiv }; // ~8.9 .. 0.4
+							const float maxStep{ 10.0f + strength * 55.0f }; // ~13 .. 285
 
 							float moveX{ errX / divisor };
 							float moveY{ errY / divisor };
+
+							// Head locks need a bit more vertical correction at range.
+							if (Settings::aimbotLockPart == "Head" || (lockPart.address && lockPart.name() == "Head"))
+								moveY *= 1.2f;
 
 							// Soft-cap only the extreme far swings so we stay fast without flying.
 							const float softCap{ maxStep * (0.55f + 0.45f * tanhf(dist / 180.0f)) };
@@ -3613,6 +4007,7 @@ int main()
 
 							MoveMouse(moveX, moveY);
 						}
+						} // wallcheck else
 					}
 				}
 			}
@@ -3633,8 +4028,66 @@ int main()
 			drawList->AddCircle({ static_cast<float>(mousePos.x), static_cast<float>(mousePos.y) }, Settings::aimbotFOVRadius, ImColor(Settings::aimbotFovColor));
 		}
 
+		if (Settings::triggerbotFOVEnabled && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
+		{
+			POINT mousePos;
+			GetCursorPos(&mousePos);
+			drawList->AddCircle(
+				{ static_cast<float>(mousePos.x), static_cast<float>(mousePos.y) },
+				Settings::triggerbotDetectionRadius,
+				ImColor(Settings::triggerbotFovColor),
+				64,
+				1.5f);
+		}
+
+		const bool triggerUsePrediction{
+			Settings::triggerbotPredictionEnabled || Settings::aimbotPredictionEnabled
+		};
+
+		if (Settings::triggerbotShowPredDot && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
+		{
+			POINT mousePos;
+			GetCursorPos(&mousePos);
+			for (size_t pi = 0; pi < playersList.size(); ++pi)
+			{
+				RBX::Instance plr{ playersList[pi] };
+				const std::string plrName{ GetPlayersListName(pi, plr) };
+				if (plrName == localPlayer.name() || IsFriend(plrName))
+					continue;
+
+				RBX::Instance triggerPart{ resolveLockPart(plr, Settings::triggerbotTriggerPart, mousePos, visualEngine) };
+				if (!triggerPart.address)
+					continue;
+
+				RBX::Vector3 triggerPartPos{ getAimWorldPos(triggerPart) };
+				if (triggerUsePrediction)
+				{
+					void* trigPrim{ triggerPart.getPrimitive() };
+					if (trigPrim)
+					{
+						RBX::Vector3 triggerVel{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)trigPrim + Offsets::Velocity)) };
+						const float predScale{ 0.045f };
+						triggerPartPos.x += triggerVel.x * Settings::aimbotPredictionX * predScale;
+						triggerPartPos.y += triggerVel.y * Settings::aimbotPredictionY * predScale;
+						triggerPartPos.z += triggerVel.z * Settings::aimbotPredictionX * predScale;
+					}
+				}
+
+				RBX::Vector2 screenPos{ visualEngine.worldToScreen(triggerPartPos) };
+				if (screenPos.x == 0.0f && screenPos.y == 0.0f)
+					continue;
+
+				drawList->AddCircleFilled({ screenPos.x, screenPos.y }, 4.0f, IM_COL32(255, 210, 40, 255));
+				drawList->AddCircle({ screenPos.x, screenPos.y }, 6.0f, IM_COL32(255, 255, 255, 200), 12, 1.2f);
+			}
+		}
+
 		if (Settings::triggerbotEnabled && IsBindDown(Settings::triggerbotKey) && (!Settings::rbxWindowNeedsToBeSelected || robloxFocused))
 		{
+			static ULONGLONG lastTriggerClickMs{ 0 };
+			const ULONGLONG nowTrigMs{ GetTickCount64() };
+			const ULONGLONG delayMs{ static_cast<ULONGLONG>(std::clamp(Settings::triggerbotDelayMs, 0.0f, 2000.0f)) };
+
 			POINT mousePos;
 			GetCursorPos(&mousePos);
 
@@ -3651,7 +4104,26 @@ int main()
 				if (!triggerPart.address)
 					continue;
 
-				RBX::Vector3 triggerPartPos{ triggerPart.getPosition() };
+				RBX::Vector3 triggerPartPos{ getAimWorldPos(triggerPart) };
+				if (triggerUsePrediction)
+				{
+					void* trigPrim{ triggerPart.getPrimitive() };
+					if (trigPrim)
+					{
+						RBX::Vector3 triggerVel{ RBX::Memory::read<RBX::Vector3>((void*)((uintptr_t)trigPrim + Offsets::Velocity)) };
+						const float predScale{ 0.045f };
+						triggerPartPos.x += triggerVel.x * Settings::aimbotPredictionX * predScale;
+						triggerPartPos.y += triggerVel.y * Settings::aimbotPredictionY * predScale;
+						triggerPartPos.z += triggerVel.z * Settings::aimbotPredictionX * predScale;
+					}
+				}
+				if (Settings::triggerbotWallCheck || Settings::aimbotWallCheck)
+				{
+					RBX::Instance localModel{ localPlayer.getModelInstance() };
+					RBX::Instance targetModel{ plr.getModelInstance() };
+					if (!HasLineOfSight(dataModel, camera, triggerPartPos, &localModel, &targetModel))
+						continue;
+				}
 				RBX::Vector2 screenPos{ visualEngine.worldToScreen(triggerPartPos) };
 
 				float dx{ screenPos.x - mousePos.x };
@@ -3660,19 +4132,29 @@ int main()
 
 				if (dist < Settings::triggerbotDetectionRadius)
 				{
+					if (nowTrigMs - lastTriggerClickMs < delayMs)
+						break;
+
+					lastTriggerClickMs = nowTrigMs;
+
+					const DWORD downFlag{ Settings::triggerbotRightClick ? static_cast<DWORD>(MOUSEEVENTF_RIGHTDOWN) : static_cast<DWORD>(MOUSEEVENTF_LEFTDOWN) };
+					const DWORD upFlag{ Settings::triggerbotRightClick ? static_cast<DWORD>(MOUSEEVENTF_RIGHTUP) : static_cast<DWORD>(MOUSEEVENTF_LEFTUP) };
+
 					INPUT input{ 0 };
 					input.type = INPUT_MOUSE;
-					input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+					input.mi.dwFlags = downFlag;
 					SendInput(1, &input, sizeof(input));
 
 					ZeroMemory(&input, sizeof(input));
 
 					input.type = INPUT_MOUSE;
-					input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+					input.mi.dwFlags = upFlag;
 					SendInput(1, &input, sizeof(input));
 
 					if (Settings::triggerbotIndicateClicking)
 						drawList->AddCircleFilled({ static_cast<float>(mousePos.x), static_cast<float>(mousePos.y) }, Settings::triggerbotDetectionRadius, IM_COL32(255, 0, 0, 255));
+
+					break;
 				}
 			}
 		}

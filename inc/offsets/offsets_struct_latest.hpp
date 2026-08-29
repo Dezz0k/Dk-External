@@ -4,9 +4,9 @@
 /*                  https://offsets.imtheo.lol                  
 /* -------------------------------------------------------------
 /*  Dumped With     : RbxDumperV2                               
-/*  Roblox Version  : version-ddf602d9cfe44005
+/*  Roblox Version  : version-f5a60436d48947d3
 /*  Dumper Version  : 2.1.7
-/*  Dumped At       : 22:59 11/08/2026 (GMT)
+/*  Dumped At       : 19:36 27/08/2026 (GMT)
 /*  Total Offsets   : 388
 /* -------------------------------------------------------------
 /*  Join the discord!                                           
@@ -16,670 +16,600 @@
 
 #include <cstdint>
 #include <string>
-namespace Structs {
-    inline std::string ClientVersion = "version-ddf602d9cfe44005";
-
-    struct AirProperties {
-        char pad_0[24];
-        float AirDensity;
-        char pad_1[32];
-        Vector3 GlobalWind;
-    }; // sizeof = 72
-
-    struct AnimationTrack {
-        char pad_0[184];
-        uintptr_t Animation;
-        char pad_1[20];
-        float Speed;
-        float TimePosition;
-        char pad_2[9];
-        bool Looped;
-        char pad_3[34];
-        uintptr_t Animator;
-        char pad_4[2432];
-        bool IsPlaying;
-    }; // sizeof = 2705
-
-    struct Animator {
-        char pad_0[2944];
-        uintptr_t ActiveAnimations;
-    }; // sizeof = 2952
-
-    struct Atmosphere {
-        char pad_0[208];
-        float Density;
-        float Glare;
-        float Haze;
-        float Offset;
-    }; // sizeof = 224
-
-    struct Attachment {
-        char pad_0[196];
-        Vector3 Position;
-    }; // sizeof = 208
-
-    struct BasePart {
-        char pad_0[268];
-        float Reflectance;
-        char pad_1[32];
-        float Transparency;
-        char pad_2[1];
-        bool CastShadow;
-        bool Locked;
-        bool Massless;
-        char pad_3[80];
-        uintptr_t Primitive;
-        char pad_4[41];
-        int Shape;
-    }; // sizeof = 445
-
-    struct Beam {
-        char pad_0[352];
-        uintptr_t Attachment0;
-        char pad_1[8];
-        uintptr_t Attachment1;
-        char pad_2[8];
-        float Brightness;
-        float CurveSize0;
-        float CurveSize1;
-        float LightEmission;
-        float LightInfluence;
-        char pad_3[8];
-        float TextureLength;
-        char pad_4[4];
-        float TextureSpeed;
-        float Width0;
-        float Width1;
-        float ZOffset;
-    }; // sizeof = 436
-
-    struct BloomEffect {
-        char pad_0[176];
-        bool Enabled;
-        char pad_1[7];
-        float Intensity;
-        float Size;
-        float Threshold;
-    }; // sizeof = 196
-
-    struct BlurEffect {
-        char pad_0[176];
-        bool Enabled;
-        char pad_1[7];
-        float Size;
-    }; // sizeof = 188
-
-    struct ByteCode {
-        char pad_0[16];
-        uintptr_t Pointer;
-        char pad_1[8];
-        uintptr_t Size;
-    }; // sizeof = 40
-
-    struct Camera {
-        char pad_0[200];
-        uintptr_t CameraSubject;
-        char pad_1[8];
-        Matrix3x3 Rotation;
-        Vector3 Position;
-        char pad_2[48];
-        int CameraType;
-        char pad_3[4];
-        float FieldOfView;
-        char pad_4[392];
-        Vector2 ViewportSize;
-        float ImagePlaneDepth;
-    }; // sizeof = 728
-
-    struct CharacterMesh {
-        char pad_0[328];
-        int BodyPart;
-    }; // sizeof = 332
-
-    struct ClickDetector {
-        char pad_0[232];
-        float MaxActivationDistance;
-    }; // sizeof = 236
-
-    struct Clothing {
-    }; // sizeof = 0
-
-    struct ColorCorrectionEffect {
-        char pad_0[176];
-        bool Enabled;
-        char pad_1[19];
-        float Brightness;
-        float Contrast;
-    }; // sizeof = 204
-
-    struct ColorGradingEffect {
-        char pad_0[176];
-        bool Enabled;
-        char pad_1[7];
-        int TonemapperPreset;
-    }; // sizeof = 188
-
-    struct DataModel {
-        char pad_0[8];
-        uintptr_t ToRenderView2;
-        char pad_1[24];
-        uintptr_t ToRenderView3;
-        char pad_2[296];
-        uintptr_t Workspace;
-        char pad_3[24];
-        uintptr_t CreatorId;
-        uintptr_t GameId;
-        uintptr_t PlaceId;
-        char pad_4[20];
-        int PlaceVersion;
-        char pad_5[24];
-        uintptr_t ToRenderView1;
-        char pad_6[496];
-        int PrimitiveCount;
-        char pad_7[132];
-        uintptr_t ScriptContext;
-        char pad_8[296];
-        uintptr_t GameLoaded;
-    }; // sizeof = 1400
-
-    struct DepthOfFieldEffect {
-        char pad_0[176];
-        bool Enabled;
-        char pad_1[7];
-        float FarIntensity;
-        float FocusDistance;
-        float InFocusRadius;
-        float NearIntensity;
-    }; // sizeof = 200
-
-    struct DragDetector {
-        char pad_0[232];
-        float MaxActivationDistance;
-        char pad_1[260];
-        uintptr_t ReferenceInstance;
-        char pad_2[116];
-        Vector3 MaxDragTranslation;
-        Vector3 MinDragTranslation;
-        char pad_3[36];
-        float MaxDragAngle;
-        float MaxForce;
-        float MaxTorque;
-        float MinDragAngle;
-        char pad_4[8];
-        float Responsiveness;
-    }; // sizeof = 708
-
-    struct FakeDataModel {
-        char pad_0[472];
-        uintptr_t RealDataModel;
-    }; // sizeof = 480
-
-    struct GuiBase2D {
-        char pad_0[232];
-        float AbsoluteRotation;
-        char pad_1[32];
-        Vector2 AbsolutePosition;
-        Vector2 AbsoluteSize;
-    }; // sizeof = 284
-
-    struct GuiObject {
-        char pad_0[232];
-        float Rotation;
-        char pad_1[984];
-        bool ScreenGui_Enabled;
-        char pad_2[75];
-        UDim2 Position;
-        char pad_3[16];
-        UDim2 Size;
-        char pad_4[12];
-        float BackgroundTransparency;
-        char pad_5[48];
-        int LayoutOrder;
-        char pad_6[32];
-        int ZIndex;
-        char pad_7[5];
-        bool Visible;
-    }; // sizeof = 1454
-
-    struct Humanoid {
-        char pad_0[32];
-        int HumanoidStateID;
-        char pad_1[161];
-        bool PlatformStand;
-        bool UseJumpPower;
-        char pad_2[65];
-        uintptr_t SeatPart;
-        char pad_3[8];
-        uintptr_t MoveToPart;
-        char pad_4[8];
-        Vector3 CameraOffset;
-        char pad_5[12];
-        Vector3 MoveDirection;
-        Vector3 TargetPoint;
-        char pad_6[12];
-        Vector3 MoveToPoint;
-        char pad_7[16];
-        int DisplayDistanceType;
-        int FloorMaterial;
-        float HealthDisplayDistance;
-        int HealthDisplayType;
-        float Health;
-        float HipHeight;
-        char pad_8[8];
-        float JumpHeight;
-        float JumpPower;
-        float MaxHealth;
-        float MaxSlopeAngle;
-        float NameDisplayDistance;
-        int NameOcclusion;
-        char pad_9[8];
-        int RigType;
-        char pad_10[12];
-        float Walkspeed;
-        bool AutoJumpEnabled;
-        bool AutoRotate;
-        bool AutomaticScalingEnabled;
-        bool BreakJointsOnDeath;
-        bool EvaluateStateMachine;
-        char pad_11[1];
-        bool Jump;
-        char pad_12[2];
-        bool Sit;
-        bool RequiresNeck;
-        char pad_13[477];
-        float WalkspeedCheck;
-        char pad_14[72];
-        double WalkTimer;
-        char pad_15[104];
-        uintptr_t HumanoidRootPart;
-        char pad_16[1048];
-        int HumanoidState;
-        char pad_17[163];
-        bool IsWalking;
-    }; // sizeof = 2368
-
-    struct Instance {
-        char pad_0[8];
-        uintptr_t This;
-        uintptr_t Name;
-        uintptr_t ChildrenEnd;
-        uintptr_t ClassDescriptor;
-        char pad_1[64];
-        uintptr_t Parent;
-        uintptr_t NameContainer;
-        uintptr_t ChildrenStart;
-        char pad_2[304];
-        uintptr_t ClassBase;
-    }; // sizeof = 440
-
-    struct Lighting {
-        char pad_0[200];
-        float ClockTime;
-        char pad_1[76];
-        float Brightness;
-        float EnvironmentDiffuseScale;
-        float EnvironmentSpecularScale;
-        float ExposureCompensation;
-        char pad_2[4];
-        float FogEnd;
-        float FogStart;
-        float GeographicLatitude;
-        char pad_3[12];
-        bool GlobalShadows;
-        char pad_4[35];
-        Vector3 LightDirection;
-        int Source;
-        Vector3 SunPosition;
-        Vector3 MoonPosition;
-        char pad_5[56];
-        uintptr_t Sky;
-    }; // sizeof = 464
-
-    struct LocalScript {
-        uintptr_t ByteCode;
-    }; // sizeof = 8
-
-    struct MaterialColors {
-    }; // sizeof = 0
-
-    struct MeshContentProvider {
-        char pad_0[32];
-        uintptr_t LRUCache;
-        char pad_1[24];
-        uintptr_t MeshData;
-        uintptr_t ToMeshData;
-        char pad_2[160];
-        uintptr_t Cache;
-    }; // sizeof = 248
-
-    struct MeshData {
-        uintptr_t VertexStart;
-        uintptr_t VertexEnd;
-        char pad_0[32];
-        uintptr_t FaceStart;
-        uintptr_t FaceEnd;
-    }; // sizeof = 64
-
-    struct MeshPart {
-    }; // sizeof = 0
-
-    struct Misc {
-        char pad_0[16];
-        int StringLength;
-        char pad_1[220];
-        uintptr_t Adornee;
-    }; // sizeof = 248
-
-    struct Model {
-        char pad_0[324];
-        float Scale;
-        char pad_1[272];
-        uintptr_t PrimaryPart;
-    }; // sizeof = 608
-
-    struct ModuleScript {
-        uintptr_t ByteCode;
-    }; // sizeof = 8
-
-    struct MouseService {
-        float SensitivityPointer;
-        char pad_0[208];
-        Vector2 MousePosition;
-        char pad_1[20];
-        uintptr_t InputObject;
-        char pad_2[8];
-        uintptr_t InputObject2;
-    }; // sizeof = 264
-
-    struct ParticleEmitter {
-        char pad_0[480];
-        Vector3 Acceleration;
-        char pad_1[8];
-        Vector2 Lifetime;
-        float RotSpeed;
-        char pad_2[4];
-        float Rotation;
-        char pad_3[4];
-        float Speed;
-        char pad_4[4];
-        Vector2 SpreadAngle;
-        float Brightness;
-        float Drag;
-        char pad_5[20];
-        float LightEmission;
-        float LightInfluence;
-        char pad_6[8];
-        float Rate;
-        char pad_7[16];
-        float TimeScale;
-        float VelocityInheritance;
-        float ZOffset;
-    }; // sizeof = 616
-
-    struct Player {
-        char pad_0[304];
-        uintptr_t LocalPlayer;
-        char pad_1[352];
-        uintptr_t ModelInstance;
-        char pad_2[56];
-        uintptr_t Team;
-        char pad_3[32];
-        uintptr_t UserId;
-        char pad_4[84];
-        int AccountAge;
-        char pad_5[8];
-        float MaxZoomDistance;
-        float MinZoomDistance;
-        int CameraMode;
-        char pad_6[32];
-        float HealthDisplayDistance;
-        char pad_7[12];
-        float NameDisplayDistance;
-        char pad_8[8];
-        int TeamColor;
-        char pad_9[3644];
-        uintptr_t Mouse;
-    }; // sizeof = 4600
-
-    struct PlayerConfigurer {
-        uintptr_t Pointer;
-    }; // sizeof = 8
-
-    struct PlayerMouse {
-        char pad_0[336];
-        uintptr_t Workspace;
-    }; // sizeof = 344
-
-    struct Primitive {
-        int Material;
-        char pad_0[2];
-        uintptr_t Validate;
-        char pad_1[186];
-        Matrix3x3 Rotation;
-        Vector3 Position;
-        Vector3 AssemblyLinearVelocity;
-        Vector3 AssemblyAngularVelocity;
-        char pad_2[166];
-        BYTE Flags;
-        char pad_3[5];
-        Vector3 Size;
-        char pad_4[72];
-        uintptr_t Owner;
-    }; // sizeof = 536
-
-    struct PrimitiveFlags {
-    }; // sizeof = 0
-
-    struct ProximityPrompt {
-        char pad_0[284];
-        int GamepadKeyCode;
-        float HoldDuration;
-        int KeyCode;
-        float MaxActivationDistance;
-        char pad_1[10];
-        bool Enabled;
-        bool RequiresLineOfSight;
-    }; // sizeof = 312
-
-    struct RenderJob {
-        char pad_0[56];
-        uintptr_t FakeDataModel;
-        char pad_1[400];
-        uintptr_t RealDataModel;
-        uintptr_t RenderView;
-    }; // sizeof = 480
-
-    struct RenderView {
-        char pad_0[8];
-        uintptr_t DeviceD3D11;
-        uintptr_t VisualEngine;
-        char pad_1[312];
-        bool LightingValid;
-        char pad_2[316];
-        bool SkyValid;
-    }; // sizeof = 654
-
-    struct RunService {
-        char pad_0[244];
-        double HeartbeatFPS;
-        char pad_1[700];
-        uintptr_t HeartbeatTask;
-    }; // sizeof = 960
-
-    struct Script {
-        uintptr_t ByteCode;
-    }; // sizeof = 8
-
-    struct ScriptContext {
-    }; // sizeof = 0
-
-    struct Seat {
-        char pad_0[528];
-        uintptr_t Occupant;
-    }; // sizeof = 536
-
-    struct Sky {
-        char pad_0[568];
-        Vector3 SkyboxOrientation;
-        float SunAngularSize;
-        float MoonAngularSize;
-        int StarCount;
-    }; // sizeof = 592
-
-    struct Sound {
-        char pad_0[232];
-        uintptr_t SoundGroup;
-        char pad_1[44];
-        float PlaybackSpeed;
-        float RollOffMaxDistance;
-        float RollOffMinDistance;
-        char pad_2[8];
-        float Volume;
-        char pad_3[9];
-        bool Looped;
-        char pad_4[2];
-        bool IsPlaying;
-    }; // sizeof = 321
-
-    struct SpawnLocation {
-        char pad_0[61];
-        bool AllowTeamChangeOnTouch;
-        char pad_1[418];
-        int ForcefieldDuration;
-        int TeamColor;
-        char pad_2[1];
-        bool Enabled;
-        bool Neutral;
-    }; // sizeof = 491
-
-    struct SpecialMesh {
-        char pad_0[196];
-        Vector3 Scale;
-    }; // sizeof = 208
-
-    struct StatsItem {
-        char pad_0[200];
-        double Value;
-    }; // sizeof = 208
-
-    struct SunRaysEffect {
-        char pad_0[176];
-        bool Enabled;
-        char pad_1[7];
-        float Intensity;
-        float Spread;
-    }; // sizeof = 192
-
-    struct SurfaceAppearance {
-        char pad_0[656];
-        int AlphaMode;
-        float EmissiveStrength;
-    }; // sizeof = 664
-
-    struct TaskScheduler {
-        char pad_0[176];
-        double MaxFPS;
-        char pad_1[16];
-        uintptr_t JobStart;
-        uintptr_t JobEnd;
-    }; // sizeof = 216
-
-    struct Team {
-        char pad_0[184];
-        int BrickColor;
-    }; // sizeof = 188
-
-    struct Terrain {
-        char pad_0[488];
-        float GrassLength;
-        char pad_1[4];
-        float WaterReflectance;
-        float WaterTransparency;
-        float WaterWaveSize;
-        float WaterWaveSpeed;
-        char pad_2[656];
-        uintptr_t MaterialColors;
-    }; // sizeof = 1176
-
-    struct Textures {
-    }; // sizeof = 0
-
-    struct Tool {
-        char pad_0[1196];
-        Vector3 Grip;
-        bool CanBeDropped;
-        bool Enabled;
-        bool ManualActivationOnly;
-        bool RequiresHandle;
-    }; // sizeof = 1212
-
-    struct UnionOperation {
-    }; // sizeof = 0
-
-    struct UserInputService {
-        char pad_0[704];
-        uintptr_t WindowInputState;
-    }; // sizeof = 712
-
-    struct VehicleSeat {
-        char pad_0[552];
-        float MaxSpeed;
-        float SteerFloat;
-        float ThrottleFloat;
-        float Torque;
-        float TurnSpeed;
-    }; // sizeof = 572
-
-    struct VisualEngine {
-        char pad_0[384];
-        ViewMatrix_t ViewMatrix;
-        char pad_1[2304];
-        uintptr_t FakeDataModel;
-        char pad_2[24];
-        Vector2 Dimensions;
-    }; // sizeof = 2792
-
-    struct Weld {
-        char pad_0[280];
-        uintptr_t Part0;
-        char pad_1[8];
-        uintptr_t Part1;
-    }; // sizeof = 304
-
-    struct WeldConstraint {
-        char pad_0[184];
-        uintptr_t Part0;
-        char pad_1[8];
-        uintptr_t Part1;
-    }; // sizeof = 208
-
-    struct WindowInputState {
-        char pad_0[64];
-        bool CapsLock;
-        char pad_1[7];
-        uintptr_t CurrentTextBox;
-    }; // sizeof = 80
-
-    struct Workspace {
-        char pad_0[1008];
-        uintptr_t World;
-        char pad_1[160];
-        uintptr_t CurrentCamera;
-        char pad_2[24];
-        double DistributedGameTime;
-        char pad_3[1280];
-        float ReadOnlyGravity;
-    }; // sizeof = 2500
-
-    struct World {
-        char pad_0[520];
-        float FallenPartsDestroyHeight;
-        char pad_1[4];
-        float Gravity;
-        char pad_2[12];
-        uintptr_t AirProperties;
-        char pad_3[1248];
-        float worldStepsPerSec;
-    }; // sizeof = 1804
+namespace Offsets {
+    inline std::string ClientVersion = "version-f5a60436d48947d3";
+
+    namespace AirProperties {
+         inline constexpr uintptr_t AirDensity = 0x0;
+         inline constexpr uintptr_t GlobalWind = 0x0;
+    }
+
+    namespace AnimationTrack {
+         inline constexpr uintptr_t Animation = 0xb8;
+         inline constexpr uintptr_t Animator = 0x110;
+         inline constexpr uintptr_t IsPlaying = 0xa58;
+         inline constexpr uintptr_t Looped = 0xe5;
+         inline constexpr uintptr_t Speed = 0xd4;
+         inline constexpr uintptr_t TimePosition = 0xd8;
+    }
+
+    namespace Animator {
+         inline constexpr uintptr_t ActiveAnimations = 0xb50;
+    }
+
+    namespace Atmosphere {
+         inline constexpr uintptr_t Color = 0xb8;
+         inline constexpr uintptr_t Decay = 0xc4;
+         inline constexpr uintptr_t Density = 0xd0;
+         inline constexpr uintptr_t Glare = 0xd4;
+         inline constexpr uintptr_t Haze = 0xd8;
+         inline constexpr uintptr_t Offset = 0xdc;
+    }
+
+    namespace Attachment {
+         inline constexpr uintptr_t Position = 0xc4;
+    }
+
+    namespace BasePart {
+         inline constexpr uintptr_t CastShadow = 0x135;
+         inline constexpr uintptr_t Color3 = 0x1a8;
+         inline constexpr uintptr_t Locked = 0x136;
+         inline constexpr uintptr_t Massless = 0x137;
+         inline constexpr uintptr_t Primitive = 0x188;
+         inline constexpr uintptr_t Reflectance = 0x10c;
+         inline constexpr uintptr_t Shape = 0x1b9;
+         inline constexpr uintptr_t Transparency = 0x130;
+    }
+
+    namespace Beam {
+         inline constexpr uintptr_t Attachment0 = 0x160;
+         inline constexpr uintptr_t Attachment1 = 0x170;
+         inline constexpr uintptr_t Brightness = 0x180;
+         inline constexpr uintptr_t CurveSize0 = 0x184;
+         inline constexpr uintptr_t CurveSize1 = 0x188;
+         inline constexpr uintptr_t LightEmission = 0x18c;
+         inline constexpr uintptr_t LightInfluence = 0x190;
+         inline constexpr uintptr_t Texture = 0x140;
+         inline constexpr uintptr_t TextureLength = 0x19c;
+         inline constexpr uintptr_t TextureSpeed = 0x1a4;
+         inline constexpr uintptr_t Width0 = 0x1a8;
+         inline constexpr uintptr_t Width1 = 0x1ac;
+         inline constexpr uintptr_t ZOffset = 0x1b0;
+    }
+
+    namespace BloomEffect {
+         inline constexpr uintptr_t Enabled = 0xb0;
+         inline constexpr uintptr_t Intensity = 0xb8;
+         inline constexpr uintptr_t Size = 0xbc;
+         inline constexpr uintptr_t Threshold = 0xc0;
+    }
+
+    namespace BlurEffect {
+         inline constexpr uintptr_t Enabled = 0xb0;
+         inline constexpr uintptr_t Size = 0xb8;
+    }
+
+    namespace ByteCode {
+         inline constexpr uintptr_t Pointer = 0x10;
+         inline constexpr uintptr_t Size = 0x20;
+    }
+
+    namespace Camera {
+         inline constexpr uintptr_t CameraSubject = 0xc8;
+         inline constexpr uintptr_t CameraType = 0x138;
+         inline constexpr uintptr_t FieldOfView = 0x140;
+         inline constexpr uintptr_t ImagePlaneDepth = 0x2d4;
+         inline constexpr uintptr_t Position = 0xfc;
+         inline constexpr uintptr_t Rotation = 0xd8;
+         inline constexpr uintptr_t Viewport = 0x28c;
+         inline constexpr uintptr_t ViewportSize = 0x2cc;
+    }
+
+    namespace CharacterMesh {
+         inline constexpr uintptr_t BaseTextureId = 0xc8;
+         inline constexpr uintptr_t BodyPart = 0x148;
+         inline constexpr uintptr_t MeshId = 0xf8;
+         inline constexpr uintptr_t OverlayTextureId = 0x128;
+    }
+
+    namespace ClickDetector {
+         inline constexpr uintptr_t MaxActivationDistance = 0xe8;
+         inline constexpr uintptr_t MouseIcon = 0xc8;
+    }
+
+    namespace Clothing {
+         inline constexpr uintptr_t Color3 = 0x120;
+         inline constexpr uintptr_t Template = 0x100;
+    }
+
+    namespace ColorCorrectionEffect {
+         inline constexpr uintptr_t Brightness = 0xc4;
+         inline constexpr uintptr_t Contrast = 0xc8;
+         inline constexpr uintptr_t Enabled = 0xb0;
+         inline constexpr uintptr_t TintColor = 0xb8;
+    }
+
+    namespace ColorGradingEffect {
+         inline constexpr uintptr_t Enabled = 0xb0;
+         inline constexpr uintptr_t TonemapperPreset = 0xb8;
+    }
+
+    namespace DataModel {
+         inline constexpr uintptr_t CreatorId = 0x180;
+         inline constexpr uintptr_t GameId = 0x188;
+         inline constexpr uintptr_t GameLoaded = 0x5d0;
+         inline constexpr uintptr_t JobId = 0x118;
+         inline constexpr uintptr_t PlaceId = 0x190;
+         inline constexpr uintptr_t PlaceVersion = 0x1ac;
+         inline constexpr uintptr_t PrimitiveCount = 0x418;
+         inline constexpr uintptr_t ScriptContext = 0x440;
+         inline constexpr uintptr_t ServerIP = 0x5b8;
+         inline constexpr uintptr_t ToRenderView1 = 0x1c8;
+         inline constexpr uintptr_t ToRenderView2 = 0x8;
+         inline constexpr uintptr_t ToRenderView3 = 0x28;
+         inline constexpr uintptr_t Workspace = 0x158;
+    }
+
+    namespace DepthOfFieldEffect {
+         inline constexpr uintptr_t Enabled = 0xb0;
+         inline constexpr uintptr_t FarIntensity = 0xb8;
+         inline constexpr uintptr_t FocusDistance = 0xbc;
+         inline constexpr uintptr_t InFocusRadius = 0xc0;
+         inline constexpr uintptr_t NearIntensity = 0xc4;
+    }
+
+    namespace DragDetector {
+         inline constexpr uintptr_t ActivatedCursorIcon = 0x1c0;
+         inline constexpr uintptr_t CursorIcon = 0xc8;
+         inline constexpr uintptr_t MaxActivationDistance = 0xe8;
+         inline constexpr uintptr_t MaxDragAngle = 0x2a8;
+         inline constexpr uintptr_t MaxDragTranslation = 0x26c;
+         inline constexpr uintptr_t MaxForce = 0x2ac;
+         inline constexpr uintptr_t MaxTorque = 0x2b0;
+         inline constexpr uintptr_t MinDragAngle = 0x2b4;
+         inline constexpr uintptr_t MinDragTranslation = 0x278;
+         inline constexpr uintptr_t ReferenceInstance = 0x1f0;
+         inline constexpr uintptr_t Responsiveness = 0x2c0;
+    }
+
+    namespace FakeDataModel {
+         inline constexpr uintptr_t Pointer = 0x8ca9cc8;
+         inline constexpr uintptr_t RealDataModel = 0x1f8;
+    }
+
+    namespace GuiBase2D {
+         inline constexpr uintptr_t AbsolutePosition = 0x10c;
+         inline constexpr uintptr_t AbsoluteRotation = 0xe8;
+         inline constexpr uintptr_t AbsoluteSize = 0x114;
+    }
+
+    namespace GuiObject {
+         inline constexpr uintptr_t BackgroundColor3 = 0x540;
+         inline constexpr uintptr_t BackgroundTransparency = 0x54c;
+         inline constexpr uintptr_t BorderColor3 = 0x54c;
+         inline constexpr uintptr_t Image = 0x988;
+         inline constexpr uintptr_t LayoutOrder = 0x580;
+         inline constexpr uintptr_t Position = 0x510;
+         inline constexpr uintptr_t RichText = 0xb88;
+         inline constexpr uintptr_t Rotation = 0xe8;
+         inline constexpr uintptr_t ScreenGui_Enabled = 0x4c4;
+         inline constexpr uintptr_t Size = 0x530;
+         inline constexpr uintptr_t Text = 0xdf0;
+         inline constexpr uintptr_t TextColor3 = 0xea0;
+         inline constexpr uintptr_t Visible = 0x5ad;
+         inline constexpr uintptr_t ZIndex = 0x5a4;
+    }
+
+    namespace Humanoid {
+         inline constexpr uintptr_t AutoJumpEnabled = 0x1d4;
+         inline constexpr uintptr_t AutoRotate = 0x1d5;
+         inline constexpr uintptr_t AutomaticScalingEnabled = 0x1d6;
+         inline constexpr uintptr_t BreakJointsOnDeath = 0x1d7;
+         inline constexpr uintptr_t CameraOffset = 0x128;
+         inline constexpr uintptr_t DisplayDistanceType = 0x180;
+         inline constexpr uintptr_t DisplayName = 0xb8;
+         inline constexpr uintptr_t EvaluateStateMachine = 0x1d8;
+         inline constexpr uintptr_t FloorMaterial = 0x184;
+         inline constexpr uintptr_t Health = 0x190;
+         inline constexpr uintptr_t HealthDisplayDistance = 0x188;
+         inline constexpr uintptr_t HealthDisplayType = 0x18c;
+         inline constexpr uintptr_t HipHeight = 0x194;
+         inline constexpr uintptr_t HumanoidRootPart = 0x478;
+         inline constexpr uintptr_t HumanoidState = 0x8c0;
+         inline constexpr uintptr_t HumanoidStateID = 0x20;
+         inline constexpr uintptr_t IsWalking = 0x967;
+         inline constexpr uintptr_t Jump = 0x1da;
+         inline constexpr uintptr_t JumpHeight = 0x1a0;
+         inline constexpr uintptr_t JumpPower = 0x1a4;
+         inline constexpr uintptr_t MaxHealth = 0x1a8;
+         inline constexpr uintptr_t MaxSlopeAngle = 0x1ac;
+         inline constexpr uintptr_t MoveDirection = 0x140;
+         inline constexpr uintptr_t MoveToPart = 0x118;
+         inline constexpr uintptr_t MoveToPoint = 0x164;
+         inline constexpr uintptr_t NameDisplayDistance = 0x1b0;
+         inline constexpr uintptr_t NameOcclusion = 0x1b4;
+         inline constexpr uintptr_t PlatformStand = 0x1dc;
+         inline constexpr uintptr_t PlatformStatePointer = 0x65b576d1;
+         inline constexpr uintptr_t RequiresNeck = 0x1dd;
+         inline constexpr uintptr_t RigType = 0x1c0;
+         inline constexpr uintptr_t SeatPart = 0x108;
+         inline constexpr uintptr_t Sit = 0x1dd;
+         inline constexpr uintptr_t TargetPoint = 0x14c;
+         inline constexpr uintptr_t UseJumpPower = 0x1e0;
+         inline constexpr uintptr_t WalkTimer = 0x408;
+         inline constexpr uintptr_t Walkspeed = 0x1d0;
+         inline constexpr uintptr_t WalkspeedCheck = 0x3bc;
+    }
+
+    namespace Instance {
+         inline constexpr uintptr_t ChildrenEnd = 0x8;
+         inline constexpr uintptr_t ChildrenStart = 0x78;
+         inline constexpr uintptr_t ClassBase = 0x1b0;
+         inline constexpr uintptr_t ClassDescriptor = 0x18;
+         inline constexpr uintptr_t ClassName = 0x8;
+         inline constexpr uintptr_t Name = 0x8;
+         inline constexpr uintptr_t NameContainer = 0x70;
+         inline constexpr uintptr_t Parent = 0x68;
+         inline constexpr uintptr_t This = 0x8;
+    }
+
+    namespace Lighting {
+         inline constexpr uintptr_t Ambient = 0xd0;
+         inline constexpr uintptr_t Brightness = 0x118;
+         inline constexpr uintptr_t ClockTime = 0xc8;
+         inline constexpr uintptr_t ColorShift_Bottom = 0xe8;
+         inline constexpr uintptr_t ColorShift_Top = 0xdc;
+         inline constexpr uintptr_t EnvironmentDiffuseScale = 0x11c;
+         inline constexpr uintptr_t EnvironmentSpecularScale = 0x120;
+         inline constexpr uintptr_t ExposureCompensation = 0x124;
+         inline constexpr uintptr_t FogColor = 0xf4;
+         inline constexpr uintptr_t FogEnd = 0x12c;
+         inline constexpr uintptr_t FogStart = 0x130;
+         inline constexpr uintptr_t GeographicLatitude = 0x134;
+         inline constexpr uintptr_t GlobalShadows = 0x144;
+         inline constexpr uintptr_t GradientBottom = 0x190;
+         inline constexpr uintptr_t GradientTop = 0x150;
+         inline constexpr uintptr_t LightColor = 0x15c;
+         inline constexpr uintptr_t LightDirection = 0x168;
+         inline constexpr uintptr_t MoonPosition = 0x184;
+         inline constexpr uintptr_t OutdoorAmbient = 0x100;
+         inline constexpr uintptr_t Sky = 0x1c8;
+         inline constexpr uintptr_t Source = 0x174;
+         inline constexpr uintptr_t SunPosition = 0x178;
+    }
+
+    namespace LocalScript {
+         inline constexpr uintptr_t ByteCode = 0x0;
+         inline constexpr uintptr_t GUID = 0xd0;
+         inline constexpr uintptr_t Hash = 0x1a0;
+    }
+
+    namespace MaterialColors {
+         inline constexpr uintptr_t Asphalt = 0x30;
+         inline constexpr uintptr_t Basalt = 0x27;
+         inline constexpr uintptr_t Brick = 0xf;
+         inline constexpr uintptr_t Cobblestone = 0x33;
+         inline constexpr uintptr_t Concrete = 0xc;
+         inline constexpr uintptr_t CrackedLava = 0x2d;
+         inline constexpr uintptr_t Glacier = 0x1b;
+         inline constexpr uintptr_t Grass = 0x6;
+         inline constexpr uintptr_t Ground = 0x2a;
+         inline constexpr uintptr_t Ice = 0x36;
+         inline constexpr uintptr_t LeafyGrass = 0x39;
+         inline constexpr uintptr_t Limestone = 0x3f;
+         inline constexpr uintptr_t Mud = 0x24;
+         inline constexpr uintptr_t Pavement = 0x42;
+         inline constexpr uintptr_t Rock = 0x18;
+         inline constexpr uintptr_t Salt = 0x3c;
+         inline constexpr uintptr_t Sand = 0x12;
+         inline constexpr uintptr_t Sandstone = 0x21;
+         inline constexpr uintptr_t Slate = 0x9;
+         inline constexpr uintptr_t Snow = 0x1e;
+         inline constexpr uintptr_t WoodPlanks = 0x15;
+    }
+
+    namespace MeshContentProvider {
+         inline constexpr uintptr_t AssetID = 0x10;
+         inline constexpr uintptr_t Cache = 0xf0;
+         inline constexpr uintptr_t LRUCache = 0x20;
+         inline constexpr uintptr_t MeshData = 0x40;
+         inline constexpr uintptr_t ToMeshData = 0x40;
+    }
+
+    namespace MeshData {
+         inline constexpr uintptr_t FaceEnd = 0x38;
+         inline constexpr uintptr_t FaceStart = 0x30;
+         inline constexpr uintptr_t VertexEnd = 0x8;
+         inline constexpr uintptr_t VertexStart = 0x0;
+    }
+
+    namespace MeshPart {
+         inline constexpr uintptr_t MeshId = 0x310;
+         inline constexpr uintptr_t Texture = 0x340;
+    }
+
+    namespace Misc {
+         inline constexpr uintptr_t Adornee = 0xf0;
+         inline constexpr uintptr_t AnimationId = 0xc0;
+         inline constexpr uintptr_t StringLength = 0x10;
+         inline constexpr uintptr_t Value = 0xb8;
+    }
+
+    namespace Model {
+         inline constexpr uintptr_t PrimaryPart = 0x258;
+         inline constexpr uintptr_t Scale = 0x144;
+    }
+
+    namespace ModuleScript {
+         inline constexpr uintptr_t ByteCode = 0x0;
+         inline constexpr uintptr_t GUID = 0xd0;
+         inline constexpr uintptr_t Hash = 0x148;
+         inline constexpr uintptr_t IsCoreScript = 0x0;
+    }
+
+    namespace MouseService {
+         inline constexpr uintptr_t InputObject = 0xf0;
+         inline constexpr uintptr_t InputObject2 = 0x100;
+         inline constexpr uintptr_t MousePosition = 0xd4;
+         inline constexpr uintptr_t SensitivityPointer = 0x0;
+    }
+
+    namespace ParticleEmitter {
+         inline constexpr uintptr_t Acceleration = 0x1e0;
+         inline constexpr uintptr_t Brightness = 0x21c;
+         inline constexpr uintptr_t Drag = 0x220;
+         inline constexpr uintptr_t Lifetime = 0x1f4;
+         inline constexpr uintptr_t LightEmission = 0x238;
+         inline constexpr uintptr_t LightInfluence = 0x23c;
+         inline constexpr uintptr_t Rate = 0x248;
+         inline constexpr uintptr_t RotSpeed = 0x1fc;
+         inline constexpr uintptr_t Rotation = 0x204;
+         inline constexpr uintptr_t Speed = 0x20c;
+         inline constexpr uintptr_t SpreadAngle = 0x214;
+         inline constexpr uintptr_t Texture = 0x1c0;
+         inline constexpr uintptr_t TimeScale = 0x25c;
+         inline constexpr uintptr_t VelocityInheritance = 0x260;
+         inline constexpr uintptr_t ZOffset = 0x264;
+    }
+
+    namespace Player {
+         inline constexpr uintptr_t AccountAge = 0x35c;
+         inline constexpr uintptr_t CameraMode = 0x370;
+         inline constexpr uintptr_t DisplayName = 0x138;
+         inline constexpr uintptr_t HealthDisplayDistance = 0x394;
+         inline constexpr uintptr_t LocalPlayer = 0x130;
+         inline constexpr uintptr_t LocaleId = 0x118;
+         inline constexpr uintptr_t MaxZoomDistance = 0x368;
+         inline constexpr uintptr_t MinZoomDistance = 0x36c;
+         inline constexpr uintptr_t ModelInstance = 0x298;
+         inline constexpr uintptr_t Mouse = 0x1208;
+         inline constexpr uintptr_t NameDisplayDistance = 0x3a4;
+         inline constexpr uintptr_t Team = 0x2d8;
+         inline constexpr uintptr_t TeamColor = 0x3b0;
+         inline constexpr uintptr_t UserId = 0xd0;
+    }
+
+    namespace PlayerConfigurer {
+         inline constexpr uintptr_t Pointer = 0x0;
+    }
+
+    namespace PlayerMouse {
+         inline constexpr uintptr_t Icon = 0xc8;
+         inline constexpr uintptr_t Workspace = 0x150;
+    }
+
+    namespace Primitive {
+         inline constexpr uintptr_t AssemblyAngularVelocity = 0x104;
+         inline constexpr uintptr_t AssemblyLinearVelocity = 0xf8;
+         inline constexpr uintptr_t Flags = 0x1b6;
+         inline constexpr uintptr_t Material = 0x0;
+         inline constexpr uintptr_t Owner = 0x210;
+         inline constexpr uintptr_t Position = 0xec;
+         inline constexpr uintptr_t Rotation = 0xc8;
+         inline constexpr uintptr_t Size = 0x1bc;
+         inline constexpr uintptr_t Validate = 0x6;
+    }
+
+    namespace PrimitiveFlags {
+         inline constexpr uintptr_t Anchored = 0x2;
+         inline constexpr uintptr_t CanCollide = 0x8;
+         inline constexpr uintptr_t CanQuery = 0x20;
+         inline constexpr uintptr_t CanTouch = 0x10;
+    }
+
+    namespace ProximityPrompt {
+         inline constexpr uintptr_t ActionText = 0xb0;
+         inline constexpr uintptr_t Enabled = 0x136;
+         inline constexpr uintptr_t GamepadKeyCode = 0x11c;
+         inline constexpr uintptr_t HoldDuration = 0x120;
+         inline constexpr uintptr_t KeyCode = 0x124;
+         inline constexpr uintptr_t MaxActivationDistance = 0x128;
+         inline constexpr uintptr_t ObjectText = 0xd0;
+         inline constexpr uintptr_t RequiresLineOfSight = 0x137;
+    }
+
+    namespace RenderJob {
+         inline constexpr uintptr_t FakeDataModel = 0x38;
+         inline constexpr uintptr_t RealDataModel = 0x1f0;
+         inline constexpr uintptr_t RenderView = 0x1d8;
+    }
+
+    namespace RenderView {
+         inline constexpr uintptr_t DeviceD3D11 = 0x8;
+         inline constexpr uintptr_t LightingValid = 0x150;
+         inline constexpr uintptr_t SkyValid = 0x28d;
+         inline constexpr uintptr_t VisualEngine = 0x10;
+    }
+
+    namespace RunService {
+         inline constexpr uintptr_t HeartbeatFPS = 0xf4;
+         inline constexpr uintptr_t HeartbeatTask = 0x3b8;
+    }
+
+    namespace Script {
+         inline constexpr uintptr_t ByteCode = 0x0;
+         inline constexpr uintptr_t GUID = 0xd0;
+         inline constexpr uintptr_t Hash = 0x1a0;
+    }
+
+    namespace ScriptContext {
+         inline constexpr uintptr_t RequireBypass = 0x0;
+    }
+
+    namespace Seat {
+         inline constexpr uintptr_t Occupant = 0x210;
+    }
+
+    namespace Sky {
+         inline constexpr uintptr_t MoonAngularSize = 0x244;
+         inline constexpr uintptr_t MoonTextureId = 0xc8;
+         inline constexpr uintptr_t SkyboxBk = 0xf8;
+         inline constexpr uintptr_t SkyboxDn = 0x128;
+         inline constexpr uintptr_t SkyboxFt = 0x158;
+         inline constexpr uintptr_t SkyboxLf = 0x188;
+         inline constexpr uintptr_t SkyboxOrientation = 0x238;
+         inline constexpr uintptr_t SkyboxRt = 0x1b8;
+         inline constexpr uintptr_t SkyboxUp = 0x1e8;
+         inline constexpr uintptr_t StarCount = 0x248;
+         inline constexpr uintptr_t SunAngularSize = 0x23c;
+         inline constexpr uintptr_t SunTextureId = 0x218;
+    }
+
+    namespace Sound {
+         inline constexpr uintptr_t IsPlaying = 0x140;
+         inline constexpr uintptr_t Looped = 0x13d;
+         inline constexpr uintptr_t PlaybackSpeed = 0x11c;
+         inline constexpr uintptr_t RollOffMaxDistance = 0x120;
+         inline constexpr uintptr_t RollOffMinDistance = 0x124;
+         inline constexpr uintptr_t SoundGroup = 0xe8;
+         inline constexpr uintptr_t SoundId = 0xc8;
+         inline constexpr uintptr_t Volume = 0x130;
+    }
+
+    namespace SpawnLocation {
+         inline constexpr uintptr_t AllowTeamChangeOnTouch = 0x1e8;
+         inline constexpr uintptr_t Enabled = 0x1e9;
+         inline constexpr uintptr_t ForcefieldDuration = 0x1e0;
+         inline constexpr uintptr_t Neutral = 0x1ea;
+         inline constexpr uintptr_t TeamColor = 0x1e4;
+    }
+
+    namespace SpecialMesh {
+         inline constexpr uintptr_t MeshId = 0xf8;
+         inline constexpr uintptr_t Scale = 0xc4;
+    }
+
+    namespace StatsItem {
+         inline constexpr uintptr_t Value = 0xc8;
+    }
+
+    namespace SunRaysEffect {
+         inline constexpr uintptr_t Enabled = 0xb0;
+         inline constexpr uintptr_t Intensity = 0xb8;
+         inline constexpr uintptr_t Spread = 0xbc;
+    }
+
+    namespace SurfaceAppearance {
+         inline constexpr uintptr_t AlphaMode = 0x1f0;
+         inline constexpr uintptr_t Color = 0x1d8;
+         inline constexpr uintptr_t ColorMap = 0xc8;
+         inline constexpr uintptr_t EmissiveMaskContent = 0xf8;
+         inline constexpr uintptr_t EmissiveStrength = 0x1f4;
+         inline constexpr uintptr_t EmissiveTint = 0x1e4;
+         inline constexpr uintptr_t MetalnessMap = 0x128;
+         inline constexpr uintptr_t NormalMap = 0x158;
+         inline constexpr uintptr_t RoughnessMap = 0x188;
+    }
+
+    namespace TaskScheduler {
+         inline constexpr uintptr_t JobEnd = 0xd0;
+         inline constexpr uintptr_t JobName = 0x18;
+         inline constexpr uintptr_t JobStart = 0xc8;
+         inline constexpr uintptr_t MaxFPS = 0xb0;
+         inline constexpr uintptr_t Pointer = 0x8a44d68;
+    }
+
+    namespace Team {
+         inline constexpr uintptr_t BrickColor = 0xb8;
+    }
+
+    namespace Terrain {
+         inline constexpr uintptr_t GrassLength = 0x1e8;
+         inline constexpr uintptr_t MaterialColors = 0x4b0;
+         inline constexpr uintptr_t WaterColor = 0x1d8;
+         inline constexpr uintptr_t WaterReflectance = 0x1f0;
+         inline constexpr uintptr_t WaterTransparency = 0x1f4;
+         inline constexpr uintptr_t WaterWaveSize = 0x1f8;
+         inline constexpr uintptr_t WaterWaveSpeed = 0x1fc;
+    }
+
+    namespace Textures {
+         inline constexpr uintptr_t Decal_Texture = 0x1b0;
+         inline constexpr uintptr_t Texture_Texture = 0x1b0;
+    }
+
+    namespace Tool {
+         inline constexpr uintptr_t CanBeDropped = 0x4b8;
+         inline constexpr uintptr_t Enabled = 0x4b9;
+         inline constexpr uintptr_t Grip = 0x4ac;
+         inline constexpr uintptr_t ManualActivationOnly = 0x4ba;
+         inline constexpr uintptr_t RequiresHandle = 0x4bb;
+         inline constexpr uintptr_t TextureId = 0x360;
+         inline constexpr uintptr_t Tooltip = 0x468;
+    }
+
+    namespace UnionOperation {
+         inline constexpr uintptr_t AssetId = 0x310;
+    }
+
+    namespace UserInputService {
+         inline constexpr uintptr_t WindowInputState = 0x2c0;
+    }
+
+    namespace VehicleSeat {
+         inline constexpr uintptr_t MaxSpeed = 0x228;
+         inline constexpr uintptr_t SteerFloat = 0x22c;
+         inline constexpr uintptr_t ThrottleFloat = 0x230;
+         inline constexpr uintptr_t Torque = 0x234;
+         inline constexpr uintptr_t TurnSpeed = 0x238;
+    }
+
+    namespace VisualEngine {
+         inline constexpr uintptr_t Dimensions = 0xae0;
+         inline constexpr uintptr_t FakeDataModel = 0xac0;
+         inline constexpr uintptr_t Pointer = 0x82e2128;
+         inline constexpr uintptr_t RenderView = 0xc00;
+         inline constexpr uintptr_t ViewMatrix = 0x180;
+    }
+
+    namespace Weld {
+         inline constexpr uintptr_t Part0 = 0x118;
+         inline constexpr uintptr_t Part1 = 0x128;
+    }
+
+    namespace WeldConstraint {
+         inline constexpr uintptr_t Part0 = 0xb8;
+         inline constexpr uintptr_t Part1 = 0xc8;
+    }
+
+    namespace WindowInputState {
+         inline constexpr uintptr_t CapsLock = 0x40;
+         inline constexpr uintptr_t CurrentTextBox = 0x48;
+    }
+
+    namespace Workspace {
+         inline constexpr uintptr_t CurrentCamera = 0x498;
+         inline constexpr uintptr_t DistributedGameTime = 0x4b8;
+         inline constexpr uintptr_t ReadOnlyGravity = 0x9c8;
+         inline constexpr uintptr_t World = 0x368;
+    }
+
+    namespace World {
+         inline constexpr uintptr_t AirProperties = 0x0;
+         inline constexpr uintptr_t FallenPartsDestroyHeight = 0x0;
+         inline constexpr uintptr_t Gravity = 0x1b4;
+         inline constexpr uintptr_t Primitives = 0x0;
+         inline constexpr uintptr_t worldStepsPerSec = 0x0;
+    }
 
 }

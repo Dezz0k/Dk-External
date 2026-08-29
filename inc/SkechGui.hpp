@@ -665,6 +665,8 @@ namespace SkechStyle
 		bool aimbotFOVEnabled = false;
 		bool aimbotPredictionEnabled = false;
 		bool aimbotToggleLock = false;
+		bool aimbotHoldSwitch = false;
+		bool aimbotWallCheck = false;
 		float aimbotFOVRadius = 100.0f;
 		float aimbotStrenght = 0.35f;
 		float aimbotPredictionX = 5.0f;
@@ -674,8 +676,15 @@ namespace SkechStyle
 
 		bool triggerbotEnabled = false;
 		bool triggerbotIndicateClicking = false;
+		bool triggerbotRightClick = false;
+		bool triggerbotWallCheck = false;
+		bool triggerbotFOVEnabled = false;
+		bool triggerbotShowPredDot = false;
+		bool triggerbotPredictionEnabled = false;
 		float triggerbotDetectionRadius = 20.0f;
+		float triggerbotDelayMs = 50.0f;
 		int triggerbotTriggerPart = 0;
+		ImVec4 triggerbotFovColor{ 1.0f, 0.55f, 0.1f, 1.0f };
 
 		bool silentAimEnabled = false;
 		int silentAimLockPart = 0;
@@ -695,6 +704,7 @@ namespace SkechStyle
 		ImVec4 tracerColor{ 1, 1, 1, 1 };
 
 		char configFileName[64] = "";
+		char configStatus[96] = "";
 		static constexpr int MaxConfigs = 48;
 		char configList[MaxConfigs][64]{};
 		const char* configListPtrs[MaxConfigs]{};
@@ -731,6 +741,7 @@ namespace SkechStyle
 		bool walletLoaded = false;
 		bool autoSaveEnabled = false;
 		std::function<void()> onSaveConfig;
+		std::function<void()> onCreateConfig;
 		std::function<void()> onLoadConfig;
 		bool handleInsert = true;
 		bool fillBackdrop = false;
@@ -1290,27 +1301,42 @@ namespace SkechStyle
 			const float leftW = contentW * 0.38f;
 			const float rightW = (contentW - leftW - gap * 2.0f) * 0.5f;
 			const float tallH = contentH;
-			const float shortH = contentH * 0.58f;
+			const float shortH = contentH * 0.72f;
 
 			ImGui::SetCursorPos(ImVec2(0, 0));
 			BeginPanel("Aimbot", &st.aimbotEnabled, ImVec2(leftW, tallH), Icon::Crosshair);
 			CheckboxRow("Toggle FOV", &st.aimbotFOVEnabled);
 			CheckboxRow("Toggle prediction", &st.aimbotPredictionEnabled);
+			CheckboxRow("Wall check", &st.aimbotWallCheck);
 			ComboRow("Lock Parts", &st.aimbotLockPart, lockParts, IM_ARRAYSIZE(lockParts));
 			SliderRowF("FOV radius", &st.aimbotFOVRadius, 1.0f, 400.0f);
-			SliderRowF("Aimbot strength", &st.aimbotStrenght, 0.05f, 1.0f, "%.2f");
+			SliderRowF("Aimbot strength", &st.aimbotStrenght, 0.05f, 5.0f, "%.2f");
 			SliderRowF("Prediction X", &st.aimbotPredictionX, 0.0f, 20.0f);
 			SliderRowF("Prediction Y", &st.aimbotPredictionY, 0.0f, 20.0f);
 			ColorRow("FOV color", (float*)&st.aimbotFovColor);
 			BindPickerRow("Aimbot key", &st.aimbotKey);
 			CheckboxRow("Toggle lock", &st.aimbotToggleLock);
+			if (st.aimbotToggleLock)
+				st.aimbotHoldSwitch = false;
+			CheckboxRow("Hold lock (can swap)", &st.aimbotHoldSwitch);
+			if (st.aimbotHoldSwitch)
+				st.aimbotToggleLock = false;
+			ImGui::TextColored(ColTextDim(), "Hold lock: keep holding to aim; closest in FOV can change.");
 			EndPanel();
 
 			ImGui::SetCursorPos(ImVec2(leftW + gap, 0));
 			BeginPanel("Triggerbot", &st.triggerbotEnabled, ImVec2(rightW, shortH), Icon::Crosshair);
+			CheckboxRow("Toggle FOV", &st.triggerbotFOVEnabled);
+			CheckboxRow("Show prediction dot", &st.triggerbotShowPredDot);
+			CheckboxRow("Toggle prediction", &st.triggerbotPredictionEnabled);
 			CheckboxRow("Indicate clicking", &st.triggerbotIndicateClicking);
+			CheckboxRow("Right click", &st.triggerbotRightClick);
+			CheckboxRow("Wall check", &st.triggerbotWallCheck);
+			ImGui::TextColored(ColTextDim(), "Prediction uses Aimbot X/Y values. Dot = where to aim to trigger.");
 			ComboRow("Trigger parts", &st.triggerbotTriggerPart, triggerParts, IM_ARRAYSIZE(triggerParts));
 			SliderRowF("Detection radius", &st.triggerbotDetectionRadius, 1.0f, 100.0f);
+			SliderRowF("Delay (ms)", &st.triggerbotDelayMs, 0.0f, 500.0f, "%.0f");
+			ColorRow("FOV color", (float*)&st.triggerbotFovColor);
 			BindPickerRow("Triggerbot key", &st.triggerbotKey);
 			EndPanel();
 
@@ -1350,7 +1376,14 @@ namespace SkechStyle
 			BeginPanel("Configs", nullptr, ImVec2(panelW, contentH), Icon::Folder);
 			CheckboxRow("Auto save", &st.autoSaveEnabled);
 			if (st.autoSaveEnabled)
-				ImGui::TextColored(ColFriend(), "Saving changes automatically.");
+			{
+				if (st.configFileName[0])
+					ImGui::TextColored(ColFriend(), "Saving every ~1.5s into \"%s\".", st.configFileName);
+				else
+					ImGui::TextColored(ColAccent(), "Pick or Create a config first.");
+			}
+			else
+				ImGui::TextColored(ColTextDim(), "Off by default — turn on only when you want live writes.");
 			if (st.configCount > 0)
 			{
 				if (ComboRow("Config list", &st.configIdx, st.configListPtrs, st.configCount)
@@ -1360,14 +1393,23 @@ namespace SkechStyle
 				}
 			}
 			else
-				ImGui::TextColored(ColTextDim(), "No configs yet.");
-			ImGui::TextColored(ColTextDim(), "New config name");
+				ImGui::TextColored(ColTextDim(), "No configs yet — type a name and Create.");
+			ImGui::TextColored(ColTextDim(), "Config name");
 			ImGui::SetNextItemWidth(-1.0f);
 			ImGui::InputText("##cfgname", st.configFileName, IM_ARRAYSIZE(st.configFileName));
-			if (FullButton("Load config") && st.onLoadConfig) st.onLoadConfig();
+			if (FullButton("Create config") && st.onCreateConfig) st.onCreateConfig();
 			if (FullButton("Save config") && st.onSaveConfig) st.onSaveConfig();
+			if (FullButton("Load config") && st.onLoadConfig)
+			{
+				st.autoSaveEnabled = false;
+				st.onLoadConfig();
+			}
 			if (FullButton("Refresh list"))
 				st.requestRefreshConfigs = true;
+			if (st.configStatus[0])
+				ImGui::TextColored(ColFriend(), "%s", st.configStatus);
+			ImGui::Spacing();
+			ImGui::TextWrapped("Type a name then Create for a new profile. Select one from the list to autosave/save into it.");
 			ImGui::Spacing();
 			ImGui::TextWrapped("Use the bottom Theme button to change themes.");
 			EndPanel();
@@ -1821,16 +1863,5 @@ namespace SkechStyle
 		ImGui::EndChild();
 		ImGui::PopStyleVar();
 		ImGui::End();
-
-		if (st.autoSaveEnabled && st.onSaveConfig)
-		{
-			static float saveAcc = 0.0f;
-			saveAcc += ImGui::GetIO().DeltaTime;
-			if (saveAcc >= 1.5f)
-			{
-				saveAcc = 0.0f;
-				st.onSaveConfig();
-			}
-		}
 	}
 }

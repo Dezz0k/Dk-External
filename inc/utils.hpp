@@ -115,14 +115,28 @@ inline int PollControllerBind()
 	return 0;
 }
 
+inline std::filesystem::path GetExeDirectory()
+{
+	char buf[MAX_PATH]{};
+	GetModuleFileNameA(nullptr, buf, MAX_PATH);
+	return std::filesystem::path(buf).parent_path();
+}
+
+inline std::filesystem::path GetConfigsDirectory()
+{
+	const std::filesystem::path dir{ GetExeDirectory() / "configs" };
+	std::error_code ec;
+	std::filesystem::create_directories(dir, ec);
+	return dir;
+}
+
 inline std::vector<std::string> ListConfigFiles()
 {
 	std::vector<std::string> configs;
-	const std::filesystem::path dir{ "configs" };
-	if (!std::filesystem::exists(dir))
-		std::filesystem::create_directory(dir);
+	const std::filesystem::path dir{ GetConfigsDirectory() };
 
-	for (const auto& entry : std::filesystem::directory_iterator(dir))
+	std::error_code ec;
+	for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
 	{
 		if (entry.is_regular_file() && entry.path().extension() == ".json")
 			configs.push_back(entry.path().stem().string());
